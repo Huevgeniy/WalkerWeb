@@ -4,29 +4,66 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="telegram-web-app" content="yes">
-    <title>WalkerBot — карта маршрутов</title>
+    <title>WalkerBot</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
+    <!-- ==================== КАРТА ==================== -->
     <div id="map-view" class="view active">
         <div id="map"></div>
+        
+        <!-- Поиск -->
+        <div class="search-bar">
+            <i class="fas fa-search"></i>
+            <input type="text" id="search-input" placeholder="Поиск места...">
+        </div>
+        
+        <!-- Переключатель пешком/вело -->
+        <div class="mode-switch">
+            <button class="mode-btn active" data-mode="walk" onclick="switchMode('walk')">
+                <i class="fas fa-walking"></i>
+            </button>
+            <button class="mode-btn" data-mode="bike" onclick="switchMode('bike')">
+                <i class="fas fa-bicycle"></i>
+            </button>
+        </div>
+        
+        <!-- Панель информации о маршруте -->
+        <div class="route-panel" id="route-panel">
+            <div class="distance" id="route-dist">0 км</div>
+            <div class="time" id="route-time">0 мин</div>
+            <div class="calories" id="route-cal">0 ккал</div>
+        </div>
+        
+        <!-- Измерение расстояния -->
+        <div class="measure-line" id="measure-line">
+            📏 Расстояние: <span id="measure-dist">0</span> км | Время: <span id="measure-time">0</span> мин
+        </div>
+        
+        <!-- Фильтры -->
         <div class="filter-panel">
             <button class="filter-btn active" data-filter="all"><i class="fas fa-layer-group"></i> Все</button>
-            <button class="filter-btn" data-filter="viewpoint"><i class="fas fa-binoculars"></i> Виды</button>
-            <button class="filter-btn" data-filter="rock"><i class="fas fa-mountain"></i> Скалы</button>
-            <button class="filter-btn" data-filter="water"><i class="fas fa-water"></i> Вода</button>
-            <button class="filter-btn" data-filter="forest"><i class="fas fa-tree"></i> Лес</button>
+            <button class="filter-btn" data-filter="столбы"><i class="fas fa-mountain"></i> Столбы</button>
+            <button class="filter-btn" data-filter="торгашинский"><i class="fas fa-hiking"></i> Торгаш</button>
+            <button class="filter-btn" data-filter="гремячая"><i class="fas fa-tree"></i> Грива</button>
+            <button class="filter-btn" data-filter="центр"><i class="fas fa-city"></i> Центр</button>
         </div>
+        
+        <!-- Кнопки -->
         <div class="action-bar" id="main-action-bar">
-            <button class="primary-btn" onclick="toggleRouteMode()">
-                <i class="fas fa-route"></i> Построить маршрут
+            <button class="primary-btn" id="route-btn" onclick="toggleRouteMode()">
+                <i class="fas fa-route"></i> <span>Построить маршрут</span>
+            </button>
+            <button class="primary-btn" style="margin-top:8px;background:#3498db" onclick="toggleMeasureMode()">
+                <i class="fas fa-ruler"></i> <span>Измерить расстояние</span>
             </button>
         </div>
     </div>
 
+    <!-- ==================== ДЕТАЛИ МЕСТА ==================== -->
     <div id="details-view" class="view bottom-sheet">
         <div class="sheet-handle"></div>
         <div class="sheet-content" id="details-content">
@@ -35,16 +72,18 @@
         </div>
     </div>
 
+    <!-- ==================== ГРУППЫ ==================== -->
     <div id="groups-view" class="view">
         <div class="header">
             <h2>🤝 Найти компанию</h2>
             <button class="close-btn" onclick="switchView('map-view')"><i class="fas fa-times"></i></button>
         </div>
         <div class="scroll-container" id="groups-list">
-            <p style="text-align:center;color:var(--tg-theme-hint-color)">Загрузка...</p>
+            <p class="loading">Загрузка...</p>
         </div>
     </div>
 
+    <!-- ==================== ПРОФИЛЬ ==================== -->
     <div id="profile-view" class="view">
         <div class="header">
             <h2>👤 Мой профиль</h2>
@@ -69,13 +108,37 @@
                     </div>
                 </div>
             </div>
-            <h3>🏆 Достижения</h3>
+            
+            <h3>🎯 Цели</h3>
+            <div class="goals-section" id="goals-section">
+                <div class="goal-item">
+                    <span>👣 Шагов в месяц</span>
+                    <div class="progress-bar"><div class="progress-fill" id="goal-steps" style="width:0%"></div></div>
+                    <span id="goal-steps-text">0 / 300000</span>
+                </div>
+                <div class="goal-item">
+                    <span>🚶 Прогулок в неделю</span>
+                    <div class="progress-bar"><div class="progress-fill" id="goal-walks" style="width:0%"></div></div>
+                    <span id="goal-walks-text">0 / 5</span>
+                </div>
+                <div class="goal-item">
+                    <span>📍 Километров в месяц</span>
+                    <div class="progress-bar"><div class="progress-fill" id="goal-km" style="width:0%"></div></div>
+                    <span id="goal-km-text">0 / 50</span>
+                </div>
+            </div>
+            <button class="primary-btn" onclick="tg.sendData(JSON.stringify({action:'set_goals'}))">
+                <i class="fas fa-bullseye"></i> Настроить цели
+            </button>
+            
+            <h3 style="margin-top:20px">🏆 Достижения</h3>
             <div class="achievements-grid" id="achievements-list">
-                <p style="color:var(--tg-theme-hint-color)">Загрузка...</p>
+                <p class="loading">Загрузка...</p>
             </div>
         </div>
     </div>
 
+    <!-- ==================== НАВИГАЦИЯ ==================== -->
     <nav class="bottom-nav">
         <button class="nav-btn active" onclick="switchView('map-view')">
             <i class="fas fa-map"></i>
@@ -85,7 +148,7 @@
             <i class="fas fa-users"></i>
             <span>Компания</span>
         </button>
-        <button class="nav-btn" onclick="loadProfile()">
+        <button class="nav-btn" onclick="switchView('profile-view');loadProfile()">
             <i class="fas fa-user"></i>
             <span>Профиль</span>
         </button>
