@@ -422,3 +422,18 @@ body {
     .mode-btn { color: #aaa; }
     .route-panel .time { color: #aaa; }
 }
+/* ФИКС: фильтры не наезжают на поиск */
+.filter-panel {
+    top: 55px;
+    right: 80px;
+}
+
+/* ФИКС: переключатель режимов не наезжает */
+.mode-switch {
+    top: 10px;
+}
+
+/* ФИКС: панель маршрута ниже переключателя */
+.route-panel {
+    top: 60px;
+}

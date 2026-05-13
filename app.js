@@ -33,56 +33,54 @@ function switchMode(mode) {
 }
 
 function toggleRouteMode() {
+    if (isMeasureMode) toggleMeasureMode();
     isRouteMode = !isRouteMode;
-    isMeasureMode = false;
-    document.getElementById('measure-line').classList.remove('active');
     currentRoutePoints = [];
     routeLayer.clearLayers();
     document.getElementById('route-panel').classList.remove('active');
     
     const btn = document.getElementById('route-btn');
     if (isRouteMode) {
-        btn.innerHTML = '<i class="fas fa-check"></i> <span>Готово</span>';
+        btn.querySelector('span').innerText = 'Готово';
         btn.style.background = '#e74c3c';
     } else {
-        btn.innerHTML = '<i class="fas fa-route"></i> <span>Построить маршрут</span>';
+        btn.querySelector('span').innerText = 'Построить маршрут';
         btn.style.background = 'var(--tg-theme-button-color)';
+        if (currentRoutePoints.length < 2) { isRouteMode = true; return; }
+        finishRouteBuilding();
     }
 }
 
 function toggleMeasureMode() {
+    if (isRouteMode) toggleRouteMode();
     isMeasureMode = !isMeasureMode;
-    isRouteMode = false;
-    document.getElementById('route-panel').classList.remove('active');
     currentRoutePoints = [];
-    routeLayer.clearLayers();
     measureLayer.clearLayers();
+    routeLayer.clearLayers();
+    document.getElementById('route-panel').classList.remove('active');
     
-    const btn = document.querySelector('#main-action-bar .primary-btn:first-child');
-    btn.innerHTML = '<i class="fas fa-route"></i> <span>Построить маршрут</span>';
-    btn.style.background = 'var(--tg-theme-button-color)';
-    
+    const ml = document.getElementById('measure-line');
     if (isMeasureMode) {
-        document.getElementById('measure-line').classList.add('active');
+        ml.classList.add('active');
         document.getElementById('measure-dist').innerText = '0';
         document.getElementById('measure-time').innerText = '0';
     } else {
-        document.getElementById('measure-line').classList.remove('active');
+        ml.classList.remove('active');
     }
 }
 
-// ==================== ОБРАБОТКА КЛИКОВ ====================
+// ==================== КЛИКИ ПО КАРТЕ ====================
 function handleMapClick(e) {
-    if (isRouteMode) {
-        addRoutePoint(e.latlng);
-    } else if (isMeasureMode) {
-        addMeasurePoint(e.latlng);
-    }
+    if (isRouteMode) addRoutePoint(e.latlng);
+    else if (isMeasureMode) addMeasurePoint(e.latlng);
 }
 
 function addRoutePoint(latlng) {
     currentRoutePoints.push(latlng);
-    L.circleMarker(latlng, { radius: 8, color: '#e74c3c', fillOpacity: 0.8 }).addTo(routeLayer);
+    routeLayer.clearLayers();
+    currentRoutePoints.forEach((p, i) => {
+        L.circleMarker([p.lat, p.lng], { radius: 8, color: '#e74c3c', fillOpacity: 0.8 }).addTo(routeLayer);
+    });
     if (currentRoutePoints.length > 1) {
         L.polyline(currentRoutePoints.map(p => [p.lat, p.lng]), { color: '#2ecc71', weight: 4 }).addTo(routeLayer);
         updateRouteInfo();
@@ -91,44 +89,27 @@ function addRoutePoint(latlng) {
 
 function addMeasurePoint(latlng) {
     currentRoutePoints.push(latlng);
-    L.circleMarker(latlng, { radius: 6, color: '#3498db', fillOpacity: 0.8 }).addTo(measureLayer);
+    measureLayer.clearLayers();
+    currentRoutePoints.forEach(p => L.circleMarker([p.lat, p.lng], { radius: 6, color: '#3498db', fillOpacity: 0.8 }).addTo(measureLayer));
     if (currentRoutePoints.length > 1) {
-        measureLayer.clearLayers();
-        currentRoutePoints.forEach(p => L.circleMarker([p.lat, p.lng], { radius: 6, color: '#3498db', fillOpacity: 0.8 }).addTo(measureLayer));
         L.polyline(currentRoutePoints.map(p => [p.lat, p.lng]), { color: '#3498db', weight: 3, dashArray: '10' }).addTo(measureLayer);
         updateMeasureInfo();
     }
 }
 
 // ==================== РАСЧЁТЫ ====================
-async function updateRouteInfo() {
+function updateRouteInfo() {
     if (currentRoutePoints.length < 2) return;
-    
     let dist = 0;
     for (let i = 0; i < currentRoutePoints.length - 1; i++) {
         dist += currentRoutePoints[i].distanceTo(currentRoutePoints[i+1]) / 1000;
     }
-    
     document.getElementById('route-panel').classList.add('active');
     document.getElementById('route-dist').innerText = dist.toFixed(2) + ' км';
-    
-    // Запрашиваем время у API бота
-    try {
-        const points = currentRoutePoints.map(p => ({ lat: p.lat, lng: p.lng }));
-        const res = await fetch(`${CONFIG.apiBaseUrl}/route-time`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ points, mode: currentMode, user_id: tg.initDataUnsafe?.user?.id })
-        });
-        const data = await res.json();
-        document.getElementById('route-time').innerText = data.time_min + ' мин';
-        document.getElementById('route-cal').innerText = '~' + data.calories + ' ккал';
-    } catch (e) {
-        const speed = currentMode === 'walk' ? 5 : 15;
-        const time = Math.round((dist / speed) * 60);
-        document.getElementById('route-time').innerText = time + ' мин';
-        document.getElementById('route-cal').innerText = '~' + Math.round(dist * 50) + ' ккал';
-    }
+    const speed = currentMode === 'walk' ? 5 : 15;
+    const time = Math.round((dist / speed) * 60);
+    document.getElementById('route-time').innerText = time + ' мин';
+    document.getElementById('route-cal').innerText = '~' + Math.round(dist * 50) + ' ккал';
 }
 
 function updateMeasureInfo() {
@@ -137,10 +118,8 @@ function updateMeasureInfo() {
     for (let i = 0; i < currentRoutePoints.length - 1; i++) {
         dist += currentRoutePoints[i].distanceTo(currentRoutePoints[i+1]) / 1000;
     }
-    const speed = currentMode === 'walk' ? 5 : 15;
-    const time = Math.round((dist / speed) * 60);
     document.getElementById('measure-dist').innerText = dist.toFixed(2);
-    document.getElementById('measure-time').innerText = time;
+    document.getElementById('measure-time').innerText = Math.round((dist / (currentMode === 'walk' ? 5 : 15)) * 60);
 }
 
 // ==================== ЗАГРУЗКА ДАННЫХ ====================
@@ -150,18 +129,35 @@ async function loadPoisFromApi() {
         allPois = await res.json();
         renderPois('all');
     } catch (e) {
-        allPois = [
-            { name: "Николаевская сопка", lat: 56.0014, lon: 92.7375, type: "сопка", district: "гремячая" },
-            { name: "Такмак", lat: 55.9492, lon: 92.8008, type: "скала", district: "столбы" },
-            { name: "Красный гребень", lat: 55.9639, lon: 92.8286, type: "хребет", district: "торгашинский" }
-        ];
-        renderPois('all');
+        allPois = [];
     }
 }
 
-async function loadProfile() {
+async function loadGroups() {
+    switchView('groups-view');
+    const list = document.getElementById('groups-list');
+    list.innerHTML = '<p class="loading">Загрузка...</p>';
     try {
-        const uid = tg.initDataUnsafe?.user?.id;
+        const res = await fetch(`${CONFIG.apiBaseUrl}/groups`);
+        const groups = await res.json();
+        list.innerHTML = groups.length ? '' : '<p class="loading">Нет активных прогулок</p>';
+        groups.forEach(g => {
+            list.innerHTML += `
+                <div class="card" onclick="joinGroup(${g.id})">
+                    <div class="card-icon"><i class="fas fa-users"></i></div>
+                    <div class="card-info">
+                        <h4>${g.name}</h4>
+                        <p>📍 ${g.place_name || ''}</p>
+                    </div>
+                </div>`;
+        });
+    } catch (e) { list.innerHTML = '<p class="loading">Ошибка загрузки</p>'; }
+}
+
+async function loadProfile() {
+    const uid = tg.initDataUnsafe?.user?.id;
+    if (!uid) return;
+    try {
         const res = await fetch(`${CONFIG.apiBaseUrl}/profile?user_id=${uid}`);
         const user = await res.json();
         document.getElementById('user-name').innerText = user.first_name || 'Путешественник';
@@ -169,6 +165,27 @@ async function loadProfile() {
         document.getElementById('stat-dist').innerText = (user.total_km || 0).toFixed(0);
         document.getElementById('stat-tracks').innerText = user.total_walks || 0;
         document.getElementById('stat-rank').innerText = getRank(user.points || 0);
+        
+        // Цели
+        const goals = user.goals || { steps: 300000, walks: 5, km: 50 };
+        document.getElementById('goal-steps').style.width = Math.min(((user.monthly_steps || 0) / goals.steps) * 100, 100) + '%';
+        document.getElementById('goal-steps-text').innerText = `${user.monthly_steps || 0} / ${goals.steps}`;
+        document.getElementById('goal-walks').style.width = Math.min(((user.weekly_walks || 0) / goals.walks) * 100, 100) + '%';
+        document.getElementById('goal-walks-text').innerText = `${user.weekly_walks || 0} / ${goals.walks}`;
+        document.getElementById('goal-km').style.width = Math.min(((user.monthly_km || 0) / goals.km) * 100, 100) + '%';
+        document.getElementById('goal-km-text').innerText = `${(user.monthly_km || 0).toFixed(0)} / ${goals.km}`;
+        
+        // Достижения
+        const achList = document.getElementById('achievements-list');
+        const achievements = [
+            { icon: '🥇', label: 'Первый шаг', unlocked: (user.total_walks || 0) >= 1 },
+            { icon: '🚶', label: '10 км', unlocked: (user.total_km || 0) >= 10 },
+            { icon: '🌄', label: 'Закаты', unlocked: (user.points || 0) >= 50 },
+            { icon: '🏆', label: '100 км', unlocked: (user.total_km || 0) >= 100 }
+        ];
+        achList.innerHTML = achievements.map(a => `
+            <div class="achievement-item ${a.unlocked ? '' : 'locked'}">${a.icon}<span class="achievement-label">${a.label}</span></div>
+        `).join('');
     } catch (e) {}
 }
 
@@ -206,10 +223,12 @@ document.getElementById('search-input').addEventListener('input', e => {
 
 // ==================== ДЕТАЛИ МЕСТА ====================
 function showDetails(poi) {
-    document.getElementById('details-content').innerHTML = `
+    const content = document.getElementById('details-content');
+    content.innerHTML = `
         <h2>${poi.name}</h2>
         <p style="color:var(--tg-theme-link-color)">${poi.district||''} • ${poi.type||''}</p>
         <p>${poi.desc||''}</p>
+        ${poi.photo ? `<img src="https://huevgeniy.github.io/WalkerWeb/images/${poi.photo}" style="width:100%;border-radius:12px;margin:10px 0" onerror="this.style.display='none'">` : ''}
         <button class="primary-btn" onclick="startRouteTo(${poi.lat},${poi.lng})"><i class="fas fa-location-arrow"></i> Маршрут сюда</button>
         <button class="primary-btn" style="margin-top:8px;background:var(--tg-theme-secondary-bg-color);color:var(--tg-theme-text-color)" onclick="sharePoi('${poi.name}',${poi.lat},${poi.lng})"><i class="fas fa-share"></i> Поделиться</button>
     `;
@@ -218,7 +237,7 @@ function showDetails(poi) {
 
 function startRouteTo(lat, lng) {
     document.getElementById('details-view').classList.remove('open');
-    toggleRouteMode();
+    if (!isRouteMode) toggleRouteMode();
     addRoutePoint({ lat: map.getCenter().lat, lng: map.getCenter().lng });
     addRoutePoint({ lat, lng });
 }
@@ -247,8 +266,14 @@ function switchView(id) {
     document.getElementById(id).classList.add('active');
     document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
     if (id === 'map-view') document.querySelector('.nav-btn:nth-child(1)').classList.add('active');
-    if (id === 'profile-view') document.querySelector('.nav-btn:nth-child(2)').classList.add('active');
+    if (id === 'groups-view') document.querySelector('.nav-btn:nth-child(2)').classList.add('active');
+    if (id === 'profile-view') document.querySelector('.nav-btn:nth-child(3)').classList.add('active');
     if (id === 'map-view') setTimeout(() => map?.invalidateSize(), 300);
+}
+
+function joinGroup(id) {
+    tg.sendData(JSON.stringify({ action: 'join_group', id: id }));
+    tg.showPopup({ title: 'Заявка отправлена!', message: 'Организатор рассмотрит вашу заявку.' });
 }
 
 function getRank(p) {
