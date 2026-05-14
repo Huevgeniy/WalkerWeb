@@ -11,7 +11,7 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <!-- ==================== КАРТА ==================== -->
+    <!-- Карта -->
     <div id="map-view" class="view active">
         <div id="map"></div>
         
@@ -23,22 +23,18 @@
         
         <!-- Переключатель пешком/вело -->
         <div class="mode-switch">
-            <button class="mode-btn active" data-mode="walk" onclick="switchMode('walk')">
-                <i class="fas fa-walking"></i>
-            </button>
-            <button class="mode-btn" data-mode="bike" onclick="switchMode('bike')">
-                <i class="fas fa-bicycle"></i>
-            </button>
+            <button class="mode-btn active" data-mode="walk" onclick="switchMode('walk')"><i class="fas fa-walking"></i></button>
+            <button class="mode-btn" data-mode="bike" onclick="switchMode('bike')"><i class="fas fa-bicycle"></i></button>
         </div>
         
-        <!-- Панель информации о маршруте -->
+        <!-- Панель маршрута -->
         <div class="route-panel" id="route-panel">
             <div class="distance" id="route-dist">0 км</div>
             <div class="time" id="route-time">0 мин</div>
             <div class="calories" id="route-cal">0 ккал</div>
         </div>
         
-        <!-- Измерение расстояния -->
+        <!-- Измерение -->
         <div class="measure-line" id="measure-line">
             📏 Расстояние: <span id="measure-dist">0</span> км | Время: <span id="measure-time">0</span> мин
         </div>
@@ -52,6 +48,14 @@
             <button class="filter-btn" data-filter="центр"><i class="fas fa-city"></i> Центр</button>
         </div>
         
+    <div style="position:absolute;bottom:140px;left:20px;z-index:1000;display:flex;gap:8px">
+        <button class="primary-btn" style="width:auto;padding:10px 16px;font-size:13px" onclick="startLocationTracking()">
+            <i class="fas fa-crosshairs"></i> Моё местоположение
+        </button>
+        <button class="primary-btn" style="width:auto;padding:10px 16px;font-size:13px;background:#e74c3c" onclick="watchLocation()">
+            <i class="fas fa-location-dot"></i> Следить
+        </button>
+    </div>
         <!-- Кнопки -->
         <div class="action-bar" id="main-action-bar">
             <button class="primary-btn" id="route-btn" onclick="toggleRouteMode()">
@@ -63,27 +67,52 @@
         </div>
     </div>
 
-    <!-- ==================== ДЕТАЛИ МЕСТА ==================== -->
+    <!-- Детали места -->
     <div id="details-view" class="view bottom-sheet">
         <div class="sheet-handle"></div>
-        <div class="sheet-content" id="details-content">
-            <h2>Выберите точку на карте</h2>
-            <p>Нажмите на маркер, чтобы увидеть подробности.</p>
-        </div>
+        <div class="sheet-content" id="details-content"></div>
     </div>
 
-    <!-- ==================== ГРУППЫ ==================== -->
+    <!-- Группы -->
     <div id="groups-view" class="view">
         <div class="header">
             <h2>🤝 Найти компанию</h2>
             <button class="close-btn" onclick="switchView('map-view')"><i class="fas fa-times"></i></button>
         </div>
-        <div class="scroll-container" id="groups-list">
-            <p class="loading">Загрузка...</p>
+        <div class="scroll-container" id="groups-list"><p class="loading">Загрузка...</p></div>
+    </div>
+
+    <!-- Треки -->
+    <div id="tracks-view" class="view">
+        <div class="header">
+            <h2>📍 Мои треки</h2>
+            <button class="close-btn" onclick="switchView('map-view')"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="scroll-container" id="tracks-list"><p class="loading">Загрузка...</p></div>
+    </div>
+
+    <!-- Друзья -->
+    <div id="friends-view" class="view">
+        <div class="header">
+            <h2>👥 Друзья</h2>
+            <button class="close-btn" onclick="switchView('map-view')"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="scroll-container">
+            <button class="primary-btn" onclick="inviteFriend()"><i class="fas fa-user-plus"></i> Пригласить друга</button>
+            <div id="friends-list" style="margin-top:15px"><p class="loading">Загрузка...</p></div>
         </div>
     </div>
 
-    <!-- ==================== ПРОФИЛЬ ==================== -->
+    <!-- Таблица лидеров -->
+    <div id="leaderboard-view" class="view">
+        <div class="header">
+            <h2>🏆 Топ ходоков</h2>
+            <button class="close-btn" onclick="switchView('map-view')"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="scroll-container" id="leaderboard-list"><p class="loading">Загрузка...</p></div>
+    </div>
+
+    <!-- Профиль -->
     <div id="profile-view" class="view">
         <div class="header">
             <h2>👤 Мой профиль</h2>
@@ -94,64 +123,45 @@
                 <div class="avatar" id="user-avatar">U</div>
                 <h3 id="user-name">Загрузка...</h3>
                 <div class="stats-grid">
-                    <div class="stat-item">
-                        <span class="value" id="stat-dist">-</span>
-                        <span class="label">км</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="value" id="stat-tracks">-</span>
-                        <span class="label">треков</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="value" id="stat-rank">-</span>
-                        <span class="label">ранг</span>
-                    </div>
+                    <div class="stat-item"><span class="value" id="stat-dist">-</span><span class="label">км</span></div>
+                    <div class="stat-item"><span class="value" id="stat-tracks">-</span><span class="label">треков</span></div>
+                    <div class="stat-item"><span class="value" id="stat-rank">-</span><span class="label">ранг</span></div>
                 </div>
             </div>
             
             <h3>🎯 Цели</h3>
             <div class="goals-section" id="goals-section">
                 <div class="goal-item">
-                    <span>👣 Шагов в месяц</span>
+                    <span>👣 Шагов</span>
                     <div class="progress-bar"><div class="progress-fill" id="goal-steps" style="width:0%"></div></div>
-                    <span id="goal-steps-text">0 / 300000</span>
+                    <span id="goal-steps-text">0 / 15000 (неделя)</span>
                 </div>
                 <div class="goal-item">
-                    <span>🚶 Прогулок в неделю</span>
+                    <span>🚶 Прогулок</span>
                     <div class="progress-bar"><div class="progress-fill" id="goal-walks" style="width:0%"></div></div>
-                    <span id="goal-walks-text">0 / 5</span>
+                    <span id="goal-walks-text">0 / 5 (неделя)</span>
                 </div>
                 <div class="goal-item">
-                    <span>📍 Километров в месяц</span>
+                    <span>📍 Километров</span>
                     <div class="progress-bar"><div class="progress-fill" id="goal-km" style="width:0%"></div></div>
-                    <span id="goal-km-text">0 / 50</span>
+                    <span id="goal-km-text">0 / 15 (неделя)</span>
                 </div>
             </div>
-            <button class="primary-btn" onclick="tg.sendData(JSON.stringify({action:'set_goals'}))">
-                <i class="fas fa-bullseye"></i> Настроить цели
-            </button>
+            <button class="primary-btn" onclick="editGoals()"><i class="fas fa-bullseye"></i> Настроить цели</button>
+            <button class="primary-btn" style="margin-top:8px;background:#3498db" onclick="inviteFriend()"><i class="fas fa-user-plus"></i> Пригласить друга</button>
             
             <h3 style="margin-top:20px">🏆 Достижения</h3>
-            <div class="achievements-grid" id="achievements-list">
-                <p class="loading">Загрузка...</p>
-            </div>
+            <div class="achievements-grid" id="achievements-list"><p class="loading">Загрузка...</p></div>
         </div>
     </div>
 
-    <!-- ==================== НАВИГАЦИЯ ==================== -->
+    <!-- Навигация -->
     <nav class="bottom-nav">
-        <button class="nav-btn active" onclick="switchView('map-view')">
-            <i class="fas fa-map"></i>
-            <span>Карта</span>
-        </button>
-        <button class="nav-btn" onclick="loadGroups()">
-            <i class="fas fa-users"></i>
-            <span>Компания</span>
-        </button>
-        <button class="nav-btn" onclick="switchView('profile-view');loadProfile()">
-            <i class="fas fa-user"></i>
-            <span>Профиль</span>
-        </button>
+        <button class="nav-btn active" onclick="switchView('map-view')"><i class="fas fa-map"></i><span>Карта</span></button>
+        <button class="nav-btn" onclick="loadTracks()"><i class="fas fa-route"></i><span>Треки</span></button>
+        <button class="nav-btn" onclick="loadGroups()"><i class="fas fa-users"></i><span>Группы</span></button>
+        <button class="nav-btn" onclick="loadLeaderboard()"><i class="fas fa-trophy"></i><span>Топ</span></button>
+        <button class="nav-btn" onclick="switchView('profile-view');loadProfile()"><i class="fas fa-user"></i><span>Профиль</span></button>
     </nav>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
