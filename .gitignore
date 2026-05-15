@@ -1,13 +1,1 @@
-# IDE
-.vscode/
-.idea/
-
-# Системные файлы
-.DS_Store
-Thumbs.db
-
-# Логи
-*.log
-
-# node_modules (если будешь использовать npm)
-node_modules/
+Nothing should be ignored based on the provided file changes. The changes consist only of source files (.js, .html, .css) and the existing .gitignore file, with no build artifacts, dependencies, or temporary files present in the change list.

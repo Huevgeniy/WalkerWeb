@@ -151,6 +151,9 @@
             <div class="section-title">🤖 ИИ Помощник</div>
             <button class="primary-btn ai-btn" onclick="openAIChat()"><i class="fas fa-robot"></i> Задать вопрос о маршруте</button>
 
+            <div class="section-title">📬 Связь с разработчиком</div>
+            <button class="primary-btn dev-btn" onclick="openDevFeedback()"><i class="fas fa-envelope"></i> Написать разработчику</button>
+
             <div class="section-title">🏆 Достижения</div>
             <div class="achievements-grid" id="achievements-list"></div>
         </div>
@@ -192,6 +195,22 @@
         </div>
     </div>
 
+    <!-- Обратная связь разработчику -->
+    <div id="dev-feedback-modal" class="modal">
+        <div class="modal-content">
+            <div class="chat-header">
+                <h3>📬 Разработчику</h3>
+                <button onclick="closeModal('dev-feedback-modal')"><i class="fas fa-times"></i></button>
+            </div>
+            <p style="font-size:13px; color:var(--hint); margin:15px 0;">Напишите ваши предложения, баги, интересные локации которых нет</p>
+            <textarea id="dev-feedback-text" placeholder="Ваше сообщение..." rows="5" style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--secondary); background:var(--bg); color:var(--text); font-family:inherit; resize:none;"></textarea>
+            <div class="btn-row" style="margin-top:15px">
+                <button class="primary-btn small" onclick="sendDevFeedback()">Отправить</button>
+                <button class="secondary-btn small" onclick="closeModal('dev-feedback-modal')">Отмена</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Навигация -->
     <nav class="bottom-nav">
         <button class="nav-btn active" onclick="switchView('map-view')"><i class="fas fa-map"></i><span>Карта</span></button>
@@ -202,6 +221,7 @@
     </nav>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="api.js"></script>
     <script src="app.js"></script>
 </body>
 </html>

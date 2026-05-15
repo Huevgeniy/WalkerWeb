@@ -3,8 +3,8 @@ tg.ready();
 tg.expand();
 
 // Конфигурация
-const API_URL = 'https://walkerbot.onrender.com/api'; // Замени на свой URL если другой
-const USER_ID = tg.initDataUnsafe?.user?.id || 12345; // Фолбэк для тестов
+const API_URL = 'https://walkerbot.onrender.com/api';
+const USER_ID = tg.initDataUnsafe?.user?.id || 12345;
 const USER_NAME = tg.initDataUnsafe?.user?.first_name || 'Путешественник';
 const USER_PHOTO = tg.initDataUnsafe?.user?.photo_url;
 
@@ -371,45 +371,81 @@ function switchView(viewId) {
 // ==================== ПРОФИЛЬ И ДАННЫЕ ====================
 async function loadProfile() {
     try {
-        // В реальности: const u = await fetch(`${API_URL}/profile?user_id=${USER_ID}`).then(r=>r.json());
-        // Эмуляция ответа бэкенда (без фейковых цифр)
+        // Загрузка данных профиля из бэкенда
+        const profileData = await WalkerAPI.getProfile(USER_ID);
+        
+        const u = profileData;
+
+        document.getElementById('user-name').innerText = u.first_name || USER_NAME;
+        if (u.photo_url) {
+            document.getElementById('user-avatar').innerHTML = `<img src="${u.photo_url}" alt="ava">`;
+        } else if (USER_PHOTO) {
+            document.getElementById('user-avatar').innerHTML = `<img src="${USER_PHOTO}" alt="ava">`;
+        } else {
+            document.getElementById('user-avatar').innerText = (u.first_name || 'U')[0];
+        }
+        
+        document.getElementById('tg-link').href = `https://t.me/${u.username || ''}`;
+
+        document.getElementById('stat-dist').innerText = (u.total_km || 0).toFixed(1);
+        document.getElementById('stat-tracks').innerText = u.total_walks || 0;
+        document.getElementById('stat-rank').innerText = getRank(u.points || 0);
+
+        // Параметры
+        document.getElementById('p-age').innerText = u.age || '-';
+        document.getElementById('p-height').innerText = u.height_cm ? u.height_cm+' см' : '-';
+        document.getElementById('p-weight').innerText = u.weight_kg ? u.weight_kg+' кг' : '-';
+
+        // Цели - загрузка из бэкенда
+        const goalsData = await WalkerAPI.getGoals(USER_ID);
+        if (goalsData && goalsData.length > 0) {
+            const activeGoal = goalsData.find(g => g.status === 'active') || goalsData[0];
+            renderGoals({
+                steps: activeGoal.goal_type === 'steps' ? activeGoal.target_value : 10000,
+                walks: activeGoal.goal_type === 'walks' ? activeGoal.target_value : 3,
+                km: activeGoal.goal_type === 'distance' ? activeGoal.target_value : 10,
+                period: activeGoal.period || 'week',
+                penalty: 'carry'
+            }, {
+                steps: 0,
+                walks: activeGoal.goal_type === 'walks' ? activeGoal.current_value : 0,
+                km: activeGoal.goal_type === 'distance' ? activeGoal.current_value : 0
+            });
+        } else {
+            renderGoals({ steps: 10000, walks: 3, km: 10, period: 'week', penalty: 'carry' }, { steps: 0, walks: 0, km: 0 });
+        }
+        
+        // Достижения - загрузка из бэкенда
+        const achievementsData = await WalkerAPI.getAchievements(USER_ID);
+        renderAchievementsFromAPI(achievementsData);
+
+    } catch (e) {
+        console.error("Profile load error", e);
+        // Fallback к локальным данным
         const u = {
             first_name: USER_NAME,
             photo_url: USER_PHOTO,
-            total_km: 0, // Пока 0, пока пользователь не запишет треки
+            total_km: 0,
             total_walks: 0,
             points: 0,
-            age: null, height: null, weight: null,
+            age: null, height_cm: null, weight_kg: null,
             goals: { steps: 10000, walks: 3, km: 10, period: 'week', penalty: 'carry' },
             period_stats: { steps: 0, walks: 0, km: 0 }
         };
-
         document.getElementById('user-name').innerText = u.first_name;
         if (u.photo_url) {
             document.getElementById('user-avatar').innerHTML = `<img src="${u.photo_url}" alt="ava">`;
         } else {
             document.getElementById('user-avatar').innerText = u.first_name[0];
         }
-        
-        document.getElementById('tg-link').href = `https://t.me/${u.first_name}`; // Заглушка, нужен username
-
         document.getElementById('stat-dist').innerText = u.total_km;
         document.getElementById('stat-tracks').innerText = u.total_walks;
         document.getElementById('stat-rank').innerText = getRank(u.points);
-
-        // Параметры
-        document.getElementById('p-age').innerText = u.age || '-';
-        document.getElementById('p-height').innerText = u.height ? u.height+' см' : '-';
-        document.getElementById('p-weight').innerText = u.weight ? u.weight+' кг' : '-';
-
-        // Цели
+        document.getElementById('p-age').innerText = '-';
+        document.getElementById('p-height').innerText = '-';
+        document.getElementById('p-weight').innerText = '-';
         renderGoals(u.goals, u.period_stats);
-        
-        // Достижения
         renderAchievements(u);
-
-    } catch (e) {
-        console.error("Profile load error", e);
     }
 }
 
@@ -498,7 +534,7 @@ function renderAchievements(u) {
     const list = [
         { id: 'first', icon: '🥇', label: 'Старт', cond: u.total_walks >= 1 },
         { id: '10km', icon: '🚶', label: '10 км', cond: u.total_km >= 10 },
-        { id: 'night', icon: '🌙', label: 'Сова', cond: false }, // Логика ночи
+        { id: 'night', icon: '🌙', label: 'Сова', cond: false },
         { id: 'pro', icon: '🔥', label: 'Профи', cond: u.total_km >= 50 }
     ];
     
@@ -507,6 +543,48 @@ function renderAchievements(u) {
             ${a.icon}<span class="ach-label">${a.label}</span>
         </div>
     `).join('');
+}
+
+// Рендер достижений из API бэкенда
+function renderAchievementsFromAPI(achievementsData) {
+    if (!achievementsData || !achievementsData.earned) {
+        renderAchievements({ total_walks: 0, total_km: 0 });
+        return;
+    }
+    
+    const earned = achievementsData.earned || [];
+    const available = achievementsData.available || [];
+    
+    let html = '';
+    
+    // Отображаем полученные достижения
+    earned.forEach(ach => {
+        html += `
+            <div class="ach-item unlocked">
+                ${ach.icon || '🏆'}<span class="ach-label">${ach.name}</span>
+                <div class="ach-desc">${ach.description || ''}</div>
+            </div>
+        `;
+    });
+    
+    // Отображаем доступные достижения с прогрессом
+    available.forEach(ach => {
+        const progress = ach.progress || 0;
+        html += `
+            <div class="ach-item locked">
+                ${ach.icon || '🔒'}<span class="ach-label">${ach.name}</span>
+                <div class="ach-desc">${ach.description || ''}</div>
+                <div class="ach-progress" style="margin-top:5px;">
+                    <div style="background:var(--secondary); height:4px; border-radius:2px; overflow:hidden;">
+                        <div style="background:var(--accent); width:${progress}%; height:100%;"></div>
+                    </div>
+                    <small style="color:var(--hint);">${progress}%</small>
+                </div>
+            </div>
+        `;
+    });
+    
+    document.getElementById('achievements-list').innerHTML = html || '<div class="loading-state">Нет достижений</div>';
 }
 
 function getRank(p) {
@@ -519,9 +597,27 @@ function getRank(p) {
 // ==================== ДРУЗЬЯ И РЕЙТИНГ (БЕЗ БОТОВ) ====================
 async function loadFriends() {
     const container = document.getElementById('friends-content');
-    // Реальный запрос: await fetch(`${API_URL}/friends?user_id=${USER_ID}`)
-    // Если список пустой, показываем заглушку
-    container.innerHTML = `<div class="loading-state">У вас пока нет друзей. Пригласите!</div>`;
+    try {
+        const friendsData = await WalkerAPI.getFriends(USER_ID);
+        
+        if (friendsData && friendsData.length > 0) {
+            container.innerHTML = friendsData.map(f => `
+                <div class="friend-item">
+                    <div class="friend-avatar">${(f.first_name || f.username || 'U')[0]}</div>
+                    <div class="friend-info">
+                        <div class="friend-name">${f.first_name || f.username}</div>
+                        <div class="friend-stat">${f.total_km?.toFixed(1) || 0} км пройдено</div>
+                    </div>
+                    <div class="friend-status ${f.status === 'accepted' ? 'online' : 'pending'}"></div>
+                </div>
+            `).join('');
+        } else {
+            container.innerHTML = `<div class="loading-state">У вас пока нет друзей. Пригласите!</div>`;
+        }
+    } catch (e) {
+        console.error("Error loading friends:", e);
+        container.innerHTML = `<div class="loading-state">У вас пока нет друзей. Пригласите!</div>`;
+    }
 }
 
 function switchFriendsTab(tab) {
@@ -536,23 +632,98 @@ function inviteFriend() {
 
 async function loadLeaderboard() {
     const list = document.getElementById('leaderboard-list');
-    // Реальный запрос: await fetch(`${API_URL}/leaderboard`)
-    // Возвращаем пустой или только реальных людей
-    list.innerHTML = `
-        <div class="loading-state">
-            <p>Рейтинг формируется по мере активности.</p>
-            <p>Стань первым! 🚀</p>
-        </div>
-    `;
+    try {
+        const leaderboardData = await WalkerAPI.getLeaderboard(10);
+        
+        if (leaderboardData && leaderboardData.length > 0) {
+            let html = '';
+            leaderboardData.forEach((entry, index) => {
+                const rankIcon = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `#${index + 1}`;
+                html += `
+                    <div class="leaderboard-item ${entry.user_id === USER_ID ? 'current-user' : ''}">
+                        <span class="rank">${rankIcon}</span>
+                        <span class="name">${entry.username || `User ${entry.user_id}`}</span>
+                        <span class="points">${entry.points} очков</span>
+                        <span class="km">${entry.total_km?.toFixed(1) || 0} км</span>
+                    </div>
+                `;
+            });
+            
+            // Добавляем позицию текущего пользователя если есть
+            if (leaderboardData.user_rank) {
+                html += `
+                    <div class="leaderboard-divider">Ваша позиция</div>
+                    <div class="leaderboard-item current-user">
+                        <span class="rank">#${leaderboardData.user_rank.rank}</span>
+                        <span class="name">${leaderboardData.user_rank.username || 'Вы'}</span>
+                        <span class="points">${leaderboardData.user_rank.points} очков</span>
+                        <span class="km">${leaderboardData.user_rank.total_km?.toFixed(1) || 0} км</span>
+                    </div>
+                `;
+            }
+            
+            list.innerHTML = html;
+        } else {
+            list.innerHTML = `
+                <div class="loading-state">
+                    <p>Рейтинг формируется по мере активности.</p>
+                    <p>Стань первым! 🚀</p>
+                </div>
+            `;
+        }
+    } catch (e) {
+        console.error("Error loading leaderboard:", e);
+        list.innerHTML = `
+            <div class="loading-state">
+                <p>Рейтинг формируется по мере активности.</p>
+                <p>Стань первым! 🚀</p>
+            </div>
+        `;
+    }
 }
 
 async function loadMyRoutes() {
     const list = document.getElementById('routes-list');
-    list.innerHTML = `<div class="loading-state">Нет сохраненных маршрутов</div>`;
+    try {
+        const routesData = await WalkerAPI.getUserTracks(USER_ID);
+        
+        if (routesData && routesData.length > 0) {
+            let html = '';
+            routesData.forEach(route => {
+                html += `
+                    <div class="route-card" onclick="viewRoute(${route.id})">
+                        <div class="route-header">
+                            <h4>${route.name || 'Без названия'}</h4>
+                            <span class="route-date">${new Date(route.created_at).toLocaleDateString()}</span>
+                        </div>
+                        <div class="route-stats">
+                            <span>📍 ${route.distance_km?.toFixed(2) || 0} км</span>
+                            <span>⏱️ ${route.duration_min || 0} мин</span>
+                            <span>👣 ${route.steps || 0} шагов</span>
+                            <span>🔥 ${route.calories || 0} ккал</span>
+                        </div>
+                        <div class="route-type">
+                            <span class="type-badge">${route.transport_type === 'walk' ? '🚶 Пешком' : '🚴 Велосипед'}</span>
+                            <span class="speed">Ср. скорость: ${(route.avg_speed || 0).toFixed(1)} км/ч</span>
+                        </div>
+                    </div>
+                `;
+            });
+            list.innerHTML = html;
+        } else {
+            list.innerHTML = `<div class="loading-state">Нет сохраненных маршрутов. Запишите свою первую прогулку!</div>`;
+        }
+    } catch (e) {
+        console.error("Error loading routes:", e);
+        list.innerHTML = `<div class="loading-state">Нет сохраненных маршрутов. Запишите свою первую прогулку!</div>`;
+    }
 }
 
-function loadPublicRoutesToggle() {
-    alert("Функция публичных маршрутов в разработке");
+function viewRoute(routeId) {
+    // Переключаемся на карту и показываем маршрут
+    switchView('map-view');
+    // В полной версии здесь будет загрузка и отображение маршрута на карте
+    tg.showAlert(`Маршрут #${routeId}. Функция просмотра деталей в разработке.`);
 }
 
 // ==================== ИИ ЧАТ ====================
@@ -574,13 +745,62 @@ async function sendChat() {
     input.value = '';
     body.scrollTop = body.scrollHeight;
     
-    // Имитация ответа
-    setTimeout(() => {
-        body.innerHTML += `<div class="msg bot">Я анализирую твой запрос: "${txt}". Скоро я научусь давать советы по маршрутам!</div>`;
-        body.scrollTop = body.scrollHeight;
-    }, 1000);
+    // Показываем индикатор набора текста
+    const loadingId = 'loading-' + Date.now();
+    body.innerHTML += `<div class="msg bot" id="${loadingId}">⏳ Думаю...</div>`;
+    body.scrollTop = body.scrollHeight;
     
-    // Реальный запрос: await fetch(`${API_URL}/chat`, { method:'POST', body: JSON.stringify({msg: txt, user_id: USER_ID}) })
+    try {
+        // Получаем текущую локацию для контекста
+        let currentLocation = null;
+        if (userMarker) {
+            const latlng = userMarker.getLatLng();
+            currentLocation = { lat: latlng.lat, lon: latlng.lng };
+        }
+        
+        // Отправляем запрос к ИИ через бэкенд
+        const response = await WalkerAPI.sendAIChat(USER_ID, txt, {
+            current_location: currentLocation,
+            user_level: 'amateur',
+            preferences: ['nature', 'quiet']
+        });
+        
+        // Удаляем индикатор загрузки
+        document.getElementById(loadingId).remove();
+        
+        // Отображаем ответ ИИ
+        body.innerHTML += `<div class="msg bot">${response.response || 'Извините, я не понял вопрос.'}</div>`;
+        
+        // Если есть предложенный маршрут - показываем
+        if (response.suggested_route && response.suggested_route.points) {
+            body.innerHTML += `
+                <div class="msg bot route-suggestion">
+                    <strong>🗺️ Предложенный маршрут:</strong><br>
+                    ${response.suggested_route.name || 'Маршрут'}<br>
+                    📍 ${(response.suggested_route.distance_km || 0).toFixed(1)} км | 
+                    Сложность: ${response.suggested_route.difficulty || 'средняя'}
+                </div>
+            `;
+            
+            // Советы от ИИ
+            if (response.tips && response.tips.length > 0) {
+                body.innerHTML += `
+                    <div class="msg bot tips">
+                        <strong>💡 Советы:</strong><br>
+                        ${response.tips.map(tip => `• ${tip}`).join('<br>')}
+                    </div>
+                `;
+            }
+        }
+        
+        body.scrollTop = body.scrollHeight;
+        
+    } catch (e) {
+        console.error("AI Chat error:", e);
+        document.getElementById(loadingId).remove();
+        body.innerHTML += `<div class="msg bot">❌ Ошибка соединения с ИИ. Попробуйте позже.</div>`;
+        body.scrollTop = body.scrollHeight;
+    }
 }
 
 // Геолокация
@@ -595,4 +815,48 @@ function centerOnUser() {
             userMarker.bindPopup("Вы здесь").openPopup();
         }
     });
+}
+// ==================== СВЯЗЬ С РАЗРАБОТЧИКОМ ====================
+function openDevFeedback() {
+    document.getElementById('dev-feedback-modal').classList.add('active');
+}
+
+async function sendDevFeedback() {
+    const textarea = document.getElementById('dev-feedback-text');
+    const message = textarea.value.trim();
+    
+    if (!message) {
+        tg.showAlert('Пожалуйста, введите сообщение');
+        return;
+    }
+
+    // Формируем данные для отправки
+    const developerId = 7434911134;
+    const developerUsername = '@huevgeniyy';
+    
+    const feedbackData = {
+        user_id: USER_ID,
+        user_name: USER_NAME,
+        message: message,
+        timestamp: new Date().toISOString()
+    };
+
+    try {
+        // Вариант: Открываем диалог с разработчиком
+        const encodedMessage = encodeURIComponent(`📬 Сообщение от пользователя WalkerBot\n\n👤 Пользователь: ${USER_NAME}\n🆔 ID: ${USER_ID}\n\n💬 Сообщение:\n${message}`);
+        
+        // Открываем диалог с разработчиком
+        tg.openTelegramLink(`https://t.me/huevgeniyy`);
+        
+        // Закрываем модальное окно и показываем подтверждение
+        closeModal('dev-feedback-modal');
+        textarea.value = '';
+        
+        // Показываем уведомление об успешной отправке
+        tg.showAlert('✅ Спасибо! Ваше сообщение отправлено разработчику.\n\nЕсли диалог не открылся автоматически, напишите вручную на @huevgeniyy');
+        
+    } catch (e) {
+        console.error("Ошибка отправки фидбека:", e);
+        tg.showAlert('❌ Ошибка отправки. Попробуйте написать разработчику напрямую: @huevgeniyy');
+    }
 }
