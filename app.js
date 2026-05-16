@@ -11,852 +11,1167 @@ const USER_PHOTO = tg.initDataUnsafe?.user?.photo_url;
 // Состояние приложения
 let map, markersLayer, routeLayer, measureLayer;
 let allPois = [];
-let currentMode = 'walk'; // walk | bike
+let currentMode = 'walk';
 let isMeasureMode = false;
 let isRouteBuilderMode = false;
-let tempPoints = []; // Точки для линейки или построения маршрута
+let isRecordingTrack = false;
+let tempPoints = [];
 let userMarker = null;
+let watchId = null;
+let trackRecordingPoints = [];
+let recordingStartTime = null;
+let recordingInterval = null;
+let currentTrack = null;
+let trackPoints = [];
+let trackingStartTime = null;
+let trackingInterval = null;
+let polyline = null;
+
+// Описания достижений
+const ACHIEVEMENTS_DESC = {
+    'first_step': 'Первый шаг - Пройдите свой первый трек',
+    'walker_1km': 'Ходок 1км - Пройдите 1 километр',
+    'walker_5km': 'Ходок 5км - Пройдите 5 километров',
+    'walker_10km': 'Ходок 10км - Пройдите 10 километров',
+    'explorer': 'Исследователь - Посетите 10 разных мест',
+    'week_streak': 'Недельный стрик - Гуляйте 7 дней подряд',
+    'month_streak': 'Месячный стрик - Гуляйте 30 дней подряд',
+    'group_hiker': 'Групповой турист - Участвуйте в групповом походе',
+    'route_creator': 'Создатель маршрутов - Опубликуйте свой маршрут',
+    'night_walker': 'Ночной ходок - Совершите прогулку ночью'
+};
 
 // Инициализация
 document.addEventListener('DOMContentLoaded', () => {
+    initTheme();
     initMap();
+    loadPois();
     loadFilters();
     setupSearch();
-    
-    // Загрузка данных профиля при старте (если открыт профиль)
-    // Но лучше ленивая загрузка при клике
+    loadProfile();
+    loadAchievements();
+    loadRoutes();
+    loadLeaderboard();
 });
 
-// ==================== КАРТА И ТОЧКИ ====================
-function initMap() {
-    map = L.map('map', { zoomControl: false }).setView([56.0153, 92.8932], 13); // Красноярск по умолчанию
-    L.control.zoom({ position: 'bottomright' }).addTo(map);
+// ==================== ТЕМА TELEGRAM ====================
+function initTheme() {
+    const root = document.documentElement;
     
-    // Слой карты (можно поменять на спутник при желании)
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap'
-    }).addTo(map);
-
-    markersLayer = L.layerGroup().addTo(map);
-    routeLayer = L.layerGroup().addTo(map);
-    measureLayer = L.layerGroup().addTo(map);
-
-    loadPois();
-    centerOnUser();
-
-    // Обработка кликов по карте
-    map.on('click', (e) => handleMapClick(e));
-}
-
-async function loadPois() {
-    try {
-        // В реальном проекте раскомментируй fetch
-        // const res = await fetch(`${API_URL}/poi`);
-        // allPois = await res.json();
-        
-        // ЭМУЛЯЦИЯ ДАННЫХ (УДАЛИТЬ ПРИ РАБОТЕ С БЭКЕНДОМ)
-        // Это просто заглушка, чтобы ты видел точки сразу
-        allPois = [
-            { id: 1, name: "Столбы", lat: 55.945, lon: 92.835, district: "столбы", type: "парк", tags: ["закат"] },
-            { id: 2, name: "Торгашинский хребет", lat: 55.915, lon: 92.785, district: "торгашинский", type: "гора", tags: ["рассвет"] },
-            { id: 3, name: "Николаевская сопка", lat: 56.025, lon: 92.855, district: "центр", type: "смотровая", tags: ["закат", "город"] },
-            { id: 4, name: "Такмак", lat: 55.895, lon: 92.765, district: "гремячая", type: "скала", tags: [] },
-            { id: 5, name: "Парк Гагарина", lat: 56.005, lon: 92.875, district: "центр", type: "парк", tags: [] }
-        ];
-        
-        renderMarkers(allPois);
-    } catch (e) {
-        console.error("Ошибка загрузки точек:", e);
+    if (tg.themeParams) {
+        if (tg.themeParams.bg_color) {
+            root.style.setProperty('--tg-theme-bg-color', tg.themeParams.bg_color);
+        }
+        if (tg.themeParams.text_color) {
+            root.style.setProperty('--tg-theme-text-color', tg.themeParams.text_color);
+        }
+        if (tg.themeParams.hint_color) {
+            root.style.setProperty('--tg-theme-hint-color', tg.themeParams.hint_color);
+        }
+        if (tg.themeParams.link_color) {
+            root.style.setProperty('--tg-theme-link-color', tg.themeParams.link_color);
+        }
+        if (tg.themeParams.button_color) {
+            root.style.setProperty('--tg-theme-button-color', tg.themeParams.button_color);
+        }
+        if (tg.themeParams.button_text_color) {
+            root.style.setProperty('--tg-theme-button-text-color', tg.themeParams.button_text_color);
+        }
+        if (tg.themeParams.secondary_bg_color) {
+            root.style.setProperty('--tg-theme-secondary-bg-color', tg.themeParams.secondary_bg_color);
+        }
     }
 }
 
-function renderMarkers(pois) {
-    markersLayer.clearLayers();
-    pois.forEach(p => {
-        const iconColor = getTypeColor(p.type);
-        const marker = L.circleMarker([p.lat, p.lon], {
-            radius: 6,
-            fillColor: iconColor,
-            color: "#fff",
-            weight: 1,
-            opacity: 1,
-            fillOpacity: 0.8
-        });
-        marker.bindTooltip(p.name, { direction: 'top' });
-        marker.on('click', () => showDetails(p));
-        markersLayer.addLayer(marker);
+// ==================== НАВИГАЦИЯ ПО ТАБАМ ====================
+function switchTab(tabName) {
+    // Скрыть все табы
+    document.querySelectorAll('.tab-content').forEach(tab => {
+        tab.classList.remove('active');
     });
+    
+    // Убрать активность с кнопок навигации
+    document.querySelectorAll('.nav-btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    
+    // Показать выбранный таб
+    document.getElementById(`tab-${tabName}`).classList.add('active');
+    
+    // Активировать кнопку навигации
+    document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
+    
+    // Если переключились на карту - обновить её размер
+    if (tabName === 'map' && map) {
+        setTimeout(() => {
+            map.invalidateSize();
+        }, 100);
+    }
 }
 
-function getTypeColor(type) {
-    const colors = {
-        'парк': '#2ecc71', 'гора': '#e74c3c', 'скала': '#9b59b6',
-        'смотровая': '#f1c40f', 'вода': '#3498db', 'лес': '#27ae60'
-    };
-    return colors[type] || '#95a5a6';
+// ==================== ПРОФИЛЬ ПОЛЬЗОВАТЕЛЯ ====================
+async function loadUserProfile() {
+    try {
+        const response = await fetch(`${API_URL}/user/profile`, {
+            headers: {
+                'Authorization': `Bearer ${USER_ID}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            document.getElementById('user-name').textContent = data.username || data.first_name || 'Пользователь';
+            document.getElementById('profile-name').textContent = data.username || data.first_name || 'Пользователь';
+            document.getElementById('profile-username').textContent = data.username ? `@${data.username}` : '@user';
+        } else {
+            // Fallback для тестирования без бэкенда
+            const user = tg.initDataUnsafe?.user;
+            if (user) {
+                const name = `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.username;
+                document.getElementById('user-name').textContent = name || 'Пользователь';
+                document.getElementById('profile-name').textContent = name || 'Пользователь';
+                document.getElementById('profile-username').textContent = user.username ? `@${user.username}` : '@user';
+            }
+        }
+    } catch (error) {
+        console.error('Ошибка загрузки профиля:', error);
+        // Fallback
+        const user = tg.initDataUnsafe?.user;
+        if (user) {
+            const name = `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.username;
+            document.getElementById('user-name').textContent = name || 'Пользователь';
+            document.getElementById('profile-name').textContent = name || 'Пользователь';
+            document.getElementById('profile-username').textContent = user.username ? `@${user.username}` : '@user';
+        }
+    }
 }
 
-// ==================== ФИЛЬТРЫ ====================
-function loadFilters() {
-    const districts = [...new Set(allPois.map(p => p.district))].filter(Boolean);
-    const types = [...new Set(allPois.map(p => p.type))].filter(Boolean);
-    const times = ['закат', 'рассвет'];
-
-    const dContainer = document.getElementById('district-filters');
-    const tContainer = document.getElementById('type-filters');
-    const timeContainer = document.getElementById('time-filters');
-
-    const createChip = (label, key, val) => {
-        const chip = document.createElement('div');
-        chip.className = 'f-chip';
-        chip.innerText = label;
-        chip.onclick = () => {
-            chip.classList.toggle('active');
-            applyFilters();
-        };
-        chip.dataset.key = key;
-        chip.dataset.val = val;
-        return chip;
-    };
-
-    districts.forEach(d => dContainer.appendChild(createChip(d, 'district', d)));
-    types.forEach(t => tContainer.appendChild(createChip(t, 'type', t)));
-    times.forEach(t => timeContainer.appendChild(createChip(t, 'tags', t)));
+// ==================== БЫСТРАЯ СТАТИСТИКА ====================
+async function loadQuickStats() {
+    try {
+        const response = await fetch(`${API_URL}/user/stats`, {
+            headers: {
+                'Authorization': `Bearer ${USER_ID}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            document.getElementById('total-distance').textContent = (data.total_distance_km || 0).toFixed(1);
+            document.getElementById('total-tracks').textContent = data.total_tracks || 0;
+            document.getElementById('achievements-count').textContent = data.achievements_count || 0;
+        }
+    } catch (error) {
+        console.error('Ошибка загрузки статистики:', error);
+    }
 }
 
-function toggleFilterMenu() {
-    document.getElementById('filter-menu').classList.toggle('open');
+// ==================== ПОСЛЕДНИЕ ТРЕКИ ====================
+async function loadRecentTracks() {
+    try {
+        const response = await fetch(`${API_URL}/tracks/recent?limit=5`, {
+            headers: {
+                'Authorization': `Bearer ${USER_ID}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (response.ok) {
+            const tracks = await response.json();
+            renderRecentTracks(tracks);
+        } else {
+            document.getElementById('recent-tracks').innerHTML = '<p class="loading">Нет недавних треков</p>';
+        }
+    } catch (error) {
+        console.error('Ошибка загрузки треков:', error);
+        document.getElementById('recent-tracks').innerHTML = '<p class="loading">Ошибка загрузки</p>';
+    }
 }
 
-function applyFilters() {
-    const activeChips = document.querySelectorAll('.f-chip.active');
-    if (activeChips.length === 0) {
-        renderMarkers(allPois);
+function renderRecentTracks(tracks) {
+    const container = document.getElementById('recent-tracks');
+    
+    if (!tracks || tracks.length === 0) {
+        container.innerHTML = '<p class="loading">Нет недавних треков</p>';
         return;
     }
-
-    const filters = {};
-    activeChips.forEach(c => {
-        const k = c.dataset.key;
-        if (!filters[k]) filters[k] = [];
-        filters[k].push(c.dataset.val);
-    });
-
-    const filtered = allPois.filter(p => {
-        let match = true;
-        if (filters.district && !filters.district.includes(p.district)) match = false;
-        if (filters.type && !filters.type.includes(p.type)) match = false;
-        if (filters.tags) {
-            const hasTag = filters.tags.some(t => p.tags && p.tags.includes(t));
-            if (!hasTag) match = false;
-        }
-        return match;
-    });
-
-    renderMarkers(filtered);
-    document.getElementById('filter-menu').classList.remove('open');
+    
+    container.innerHTML = tracks.map(track => `
+        <div class="route-card" style="margin-bottom: 12px;">
+            <div class="route-info">
+                <div class="route-title">${track.name || 'Без названия'}</div>
+                <div class="route-meta">
+                    <span>📍 ${(track.distance_km || 0).toFixed(2)} км</span>
+                    <span>⏱️ ${formatDuration(track.duration_seconds || 0)}</span>
+                    <span>📅 ${new Date(track.created_at).toLocaleDateString()}</span>
+                </div>
+            </div>
+        </div>
+    `).join('');
 }
 
-// ==================== ПОИСК ====================
-function setupSearch() {
-    const input = document.getElementById('search-input');
-    input.addEventListener('input', (e) => {
-        const val = e.target.value.toLowerCase();
-        if (val.length < 2) {
-            renderMarkers(allPois);
-            return;
-        }
-        const found = allPois.filter(p => p.name.toLowerCase().includes(val));
-        renderMarkers(found);
-        if (found.length > 0) {
-            map.setView([found[0].lat, found[0].lon], 14);
-        }
-    });
+function formatDuration(seconds) {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    
+    if (hours > 0) {
+        return `${hours}ч ${minutes}м`;
+    }
+    return `${minutes}м`;
 }
 
-// ==================== ИНСТРУМЕНТЫ (ЛИНЕЙКА / МАРШРУТ) ====================
-function setTransport(mode) {
-    currentMode = mode;
-    document.querySelectorAll('.t-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
-    recalcInfo(); // Пересчитать время если есть точки
+// ==================== КАРТА И ТРЕКИНГ ====================
+function initMap() {
+    // Инициализация карты Leaflet
+    map = L.map('map').setView([55.7558, 37.6173], 13);
+    
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors',
+        maxZoom: 19
+    }).addTo(map);
+    
+    // Слои для маркеров и маршрутов
+    markersLayer = L.layerGroup().addTo(map);
+    routeLayer = L.layerGroup().addTo(map);
+    
+    // Пытаемся получить текущее местоположение
+    if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                const lat = position.coords.latitude;
+                const lng = position.coords.longitude;
+                map.setView([lat, lng], 15);
+                
+                userMarker = L.marker([lat, lng], {
+                    icon: L.divIcon({
+                        className: 'user-marker',
+                        html: '<div style="background:#2ecc71;border:3px solid white;border-radius:50%;width:16px;height:16px;box-shadow:0 2px 8px rgba(0,0,0,0.3);"></div>',
+                        iconSize: [20, 20]
+                    })
+                }).addTo(map).bindPopup('Вы здесь');
+            },
+            (error) => {
+                console.error('Ошибка получения геолокации:', error);
+            }
+        );
+    }
+    
+    // Обработчик кликов по карте для режимов измерения/построения
+    map.on('click', onMapClick);
 }
 
-function toggleMeasureMode() {
-    resetTools();
-    isMeasureMode = true;
-    document.getElementById('measure-btn').classList.add('active');
-    showHint("Касайтесь карты, чтобы рисовать тропу");
+function onMapClick(e) {
+    if (isMeasureMode) {
+        tempPoints.push(e.latlng);
+        drawMeasureLine();
+    } else if (isRouteBuilderMode) {
+        tempPoints.push(e.latlng);
+        drawRoutePreview();
+    }
+}
+
+function drawMeasureLine() {
+    if (tempPoints.length < 2) return;
+    
+    if (measureLayer) {
+        map.removeLayer(measureLayer);
+    }
+    
+    measureLayer = L.polyline(tempPoints, {color: '#e74c3c', weight: 3, dashArray: '10, 10'}).addTo(map);
+    
+    const distance = calculateDistanceLatlng(tempPoints);
+    document.getElementById('info-dist').textContent = formatDistance(distance);
+    document.getElementById('info-time').textContent = formatTime(walkTime(distance));
     document.getElementById('info-pill').style.display = 'flex';
 }
 
+function drawRoutePreview() {
+    if (tempPoints.length < 2) return;
+    
+    if (routeLayer) {
+        map.removeLayer(routeLayer);
+    }
+    
+    routeLayer = L.polyline(tempPoints, {color: '#2ecc71', weight: 4}).addTo(map);
+    
+    const distance = calculateDistanceLatlng(tempPoints);
+    document.getElementById('info-dist').textContent = formatDistance(distance);
+    document.getElementById('info-time').textContent = formatTime(calculateTime(distance));
+    document.getElementById('info-pill').style.display = 'flex';
+}
+
+function calculateDistanceLatlng(points) {
+    if (points.length < 2) return 0;
+    let total = 0;
+    for (let i = 1; i < points.length; i++) {
+        total += map.distance(points[i-1], points[i]) / 1000;
+    }
+    return total;
+}
+
+function formatDistance(km) {
+    if (km < 1) return `${Math.round(km * 1000)} м`;
+    return `${km.toFixed(2)} км`;
+}
+
+function walkTime(km) {
+    return Math.round(km / 5 * 60);
+}
+
+function calculateTime(km) {
+    const speed = currentMode === 'bike' ? 15 : 5;
+    return Math.round(km / speed * 60);
+}
+
+function formatTime(minutes) {
+    if (minutes < 60) return `${minutes} мин`;
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    return `${h}ч ${m}м`;
+}
+
+function toggleMeasureMode() {
+    isMeasureMode = !isMeasureMode;
+    isRouteBuilderMode = false;
+    tempPoints = [];
+    
+    document.getElementById('measure-btn').classList.toggle('active', isMeasureMode);
+    document.getElementById('route-btn-main').classList.remove('active');
+    document.getElementById('mode-hint').textContent = isMeasureMode ? 'Нажимайте на карту для измерения расстояния' : '';
+    
+    if (!isMeasureMode && measureLayer) {
+        map.removeLayer(measureLayer);
+        measureLayer = null;
+        document.getElementById('info-pill').style.display = 'none';
+    }
+}
+
 function startRouteBuilder() {
-    resetTools();
-    isRouteBuilderMode = true;
-    document.getElementById('route-btn-main').classList.add('active');
-    showHint("1. Нажмите на СТАРТ (синяя точка)\n2. Нажмите на ФИНИШ (красная точка)");
-    // В полной версии тут можно открыть выбор из списка друзей или точек
+    isRouteBuilderMode = !isRouteBuilderMode;
+    isMeasureMode = false;
+    tempPoints = [];
+    
+    document.getElementById('route-btn-main').classList.toggle('active', isRouteBuilderMode);
+    document.getElementById('measure-btn').classList.remove('active');
+    document.getElementById('mode-hint').textContent = isRouteBuilderMode ? 'Нажимайте на карту для построения маршрута' : '';
+    
+    if (!isRouteBuilderMode && routeLayer) {
+        map.removeLayer(routeLayer);
+        routeLayer = null;
+        document.getElementById('info-pill').style.display = 'none';
+    }
 }
 
 function resetTools() {
     isMeasureMode = false;
     isRouteBuilderMode = false;
     tempPoints = [];
-    measureLayer.clearLayers();
-    routeLayer.clearLayers();
-    document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+    
+    if (measureLayer) {
+        map.removeLayer(measureLayer);
+        measureLayer = null;
+    }
+    if (routeLayer) {
+        map.removeLayer(routeLayer);
+        routeLayer = null;
+    }
+    
+    document.getElementById('measure-btn').classList.remove('active');
+    document.getElementById('route-btn-main').classList.remove('active');
     document.getElementById('info-pill').style.display = 'none';
-    hideHint();
+    document.getElementById('mode-hint').textContent = '';
 }
 
-function handleMapClick(e) {
-    if (!isMeasureMode && !isRouteBuilderMode) return;
-
-    const ll = e.latlng;
-    
-    if (isMeasureMode) {
-        // Рисуем тропу по точкам
-        tempPoints.push(ll);
-        drawPolyline(tempPoints, '#3498db', true);
-        recalcInfo();
-    } else if (isRouteBuilderMode) {
-        // Логика построителя: первая точка старт, вторая финиш
-        if (tempPoints.length === 0) {
-            tempPoints.push(ll);
-            L.marker(ll, { icon: createCustomIcon('blue') }).addTo(measureLayer);
-            showHint("Теперь выберите точку назначения");
-        } else if (tempPoints.length === 1) {
-            tempPoints.push(ll);
-            L.marker(ll, { icon: createCustomIcon('red') }).addTo(measureLayer);
-            
-            // Эмуляция построения маршрута (ломаная линия)
-            // В идеале здесь запрос к OSRM или backend router
-            setTimeout(() => {
-                // Добавим пару промежуточных точек для реалистичности (просто смещение)
-                const mid = L.latLng(
-                    (tempPoints[0].lat + tempPoints[1].lat) / 2 + 0.005,
-                    (tempPoints[0].lng + tempPoints[1].lng) / 2
-                );
-                const route = [tempPoints[0], mid, tempPoints[1]];
-                drawPolyline(route, '#2ecc71', false);
-                tempPoints = route; // заменяем на построенный путь
-                recalcInfo();
-                showHint("Маршрут построен! Можно добавить точку касанием.");
-                isRouteBuilderMode = false; // завершаем режим выбора, но оставляем просмотр
-                document.getElementById('route-btn-main').classList.remove('active');
-            }, 500);
+// Загрузка POI точек с бэкенда
+async function loadPois() {
+    try {
+        const response = await fetch(`${API_URL}/pois`);
+        if (response.ok) {
+            allPois = await response.json();
+            renderPois(allPois);
         } else {
-            // Добавление промежуточной точки к готовому маршруту
-            tempPoints.push(ll);
-            // Сортировка точек была бы сложной, просто добавляем в конец для простоты
-            drawPolyline(tempPoints, '#2ecc71', false);
-            recalcInfo();
+            // Демо данные для теста если API не доступен
+            allPois = [
+                {id: 1, name: 'Парк Горького', lat: 55.7297, lng: 37.6015, type: 'park', district: 'central'},
+                {id: 2, name: 'ВДНХ', lat: 55.8263, lng: 37.6377, type: 'park', district: 'north'},
+                {id: 3, name: 'Красная площадь', lat: 55.7539, lng: 37.6208, type: 'landmark', district: 'central'}
+            ];
+            renderPois(allPois);
         }
+    } catch (error) {
+        console.error('Ошибка загрузки POI:', error);
+        // Демо данные для теста
+        allPois = [
+            {id: 1, name: 'Парк Горького', lat: 55.7297, lng: 37.6015, type: 'park', district: 'central'},
+            {id: 2, name: 'ВДНХ', lat: 55.8263, lng: 37.6377, type: 'park', district: 'north'},
+            {id: 3, name: 'Красная площадь', lat: 55.7539, lng: 37.6208, type: 'landmark', district: 'central'}
+        ];
+        renderPois(allPois);
     }
 }
 
-function drawPolyline(points, color, dashed) {
-    measureLayer.clearLayers();
-    // Очистим маркеры если они были (кроме случая билдера где мы их добавляли отдельно)
-    // Для простоты перерисовываем линию
+// Загрузка фильтров районов и типов
+function loadFilters() {
+    const districts = ['central', 'north', 'south', 'east', 'west'];
+    const types = ['park', 'landmark', 'cafe', 'viewpoint', 'history', 'sport'];
     
-    const line = L.polyline(points.map(p => [p.lat, p.lng]), {
-        color: color,
-        weight: 4,
-        dashArray: dashed ? '10, 10' : null,
-        opacity: 0.8
-    }).addTo(measureLayer);
+    const districtContainer = document.getElementById('district-filters');
+    const typeContainer = document.getElementById('type-filters');
     
-    map.fitBounds(line.getBounds(), { padding: [50, 50] });
+    districtContainer.innerHTML = districts.map(d => `
+        <label class="filter-item">
+            <input type="checkbox" value="${d}" checked onchange="applyFilters()"> ${getDistrictName(d)}
+        </label>
+    `).join('');
+    
+    typeContainer.innerHTML = types.map(t => `
+        <label class="filter-item">
+            <input type="checkbox" value="${t}" checked onchange="applyFilters()"> ${getTypeName(t)}
+        </label>
+    `).join('');
 }
 
-function createCustomIcon(color) {
-    // Простая эмуляция кастомной иконки через divIcon
-    return L.divIcon({
-        className: 'custom-div-icon',
-        html: `<div style="background-color:${color}; width:12px; height:12px; border-radius:50%; border:2px solid white; box-shadow:0 0 4px black;"></div>`,
-        iconSize: [12, 12],
-        iconAnchor: [6, 6]
+function getDistrictName(district) {
+    const names = {
+        'central': 'Центральный',
+        'north': 'Северный',
+        'south': 'Южный',
+        'east': 'Восточный',
+        'west': 'Западный'
+    };
+    return names[district] || district;
+}
+
+// Применение фильтров
+function applyFilters() {
+    const checkedDistricts = Array.from(document.querySelectorAll('#district-filters input:checked')).map(el => el.value);
+    const checkedTypes = Array.from(document.querySelectorAll('#type-filters input:checked')).map(el => el.value);
+    
+    const filtered = allPois.filter(poi => 
+        checkedDistricts.includes(poi.district) && checkedTypes.includes(poi.type)
+    );
+    
+    renderPois(filtered);
+}
+
+// Поиск POI
+function setupSearch() {
+    const searchInput = document.getElementById('search-input');
+    let debounceTimer;
+    
+    searchInput.addEventListener('input', (e) => {
+        clearTimeout(debounceTimer);
+        const query = e.target.value.trim().toLowerCase();
+        
+        debounceTimer = setTimeout(() => {
+            if (query.length < 2) {
+                renderPois(allPois);
+                return;
+            }
+            
+            const filtered = allPois.filter(poi => 
+                poi.name.toLowerCase().includes(query) ||
+                getTypeName(poi.type).toLowerCase().includes(query)
+            );
+            
+            renderPois(filtered);
+            
+            if (filtered.length > 0 && map) {
+                map.setView([filtered[0].lat, filtered[0].lng], 14);
+            }
+        }, 300);
     });
 }
 
-function recalcInfo() {
-    if (tempPoints.length < 2) {
-        updateInfoDisplay(0, 0);
-        return;
+function renderPois(pois) {
+    if (markersLayer) {
+        markersLayer.clearLayers();
     }
-
-    let dist = 0;
-    let elevationGain = 0; // Заглушка, пока нет данных о рельефе в точках
-
-    for (let i = 0; i < tempPoints.length - 1; i++) {
-        const d = tempPoints[i].distanceTo(tempPoints[i+1]);
-        dist += d;
-        // Тут можно добавить логику: если есть данные высот, считать угол
-    }
-
-    const distKm = dist / 1000;
-    const speed = currentMode === 'walk' ? 5 : 15; // км/ч база
     
-    // Коррекция на рельеф (упрощенно)
-    // Если бы был уклон > 10%, скорость пешком падает до 3, велик до 10
-    const terrainFactor = 1.0; 
-    const timeHours = (distKm / (speed * terrainFactor));
-    const timeMin = Math.round(timeHours * 60);
-
-    updateInfoDisplay(distKm, timeMin);
+    pois.forEach(poi => {
+        const icon = getPoiIcon(poi.type);
+        const marker = L.marker([poi.lat, poi.lng], {
+            icon: L.divIcon({
+                className: 'poi-marker',
+                html: `<div style="background:#2ecc71;border:2px solid white;border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;color:white;font-size:16px;box-shadow:0 2px 8px rgba(0,0,0,0.3);">${icon}</div>`,
+                iconSize: [32, 32]
+            })
+        }).addTo(markersLayer);
+        
+        marker.bindPopup(`
+            <div style="min-width:200px;">
+                <b>${poi.name}</b><br>
+                <small>${getTypeName(poi.type)}</small><br>
+                <button onclick="showPoiDetails(${poi.id})" style="margin-top:8px;background:#2ecc71;color:white;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;">Подробнее</button>
+            </div>
+        `);
+    });
 }
 
-function updateInfoDisplay(km, min) {
-    document.getElementById('info-dist').innerText = (km < 1 ? Math.round(km*1000) + ' м' : km.toFixed(2) + ' км');
-    document.getElementById('info-time').innerText = min + ' мин';
+function getPoiIcon(type) {
+    const icons = {
+        'park': '🌳',
+        'landmark': '🏛️',
+        'cafe': '☕',
+        'viewpoint': '👁️',
+        'history': '📜',
+        'sport': '⚽'
+    };
+    return icons[type] || '📍';
 }
 
-function showHint(text) {
-    const h = document.getElementById('mode-hint');
-    h.innerText = text;
-    h.classList.add('show');
-    setTimeout(() => h.classList.remove('show'), 4000);
-}
-function hideHint() {
-    document.getElementById('mode-hint').classList.remove('show');
+function getTypeName(type) {
+    const names = {
+        'park': 'Парк',
+        'landmark': 'Достопримечательность',
+        'cafe': 'Кафе',
+        'viewpoint': 'Смотровая площадка',
+        'history': 'Историческое место',
+        'sport': 'Спорт'
+    };
+    return names[type] || 'Место';
 }
 
-// ==================== ДЕТАЛИ МЕСТА ====================
-function showDetails(poi) {
-    const content = document.getElementById('details-content');
-    content.innerHTML = `
-        <h2>${poi.name}</h2>
-        <div style="color:var(--hint); margin-bottom:15px">${poi.district} • ${poi.type}</div>
-        <p>Отличное место для прогулки! ${poi.tags.includes('закат') ? 'Идеально для заката.' : ''}</p>
-        <div style="display:flex; gap:10px; margin-top:20px">
-            <button class="primary-btn" onclick="startRouteTo(${poi.lat},${poi.lon})"><i class="fas fa-location-arrow"></i> Сюда</button>
-            <button class="secondary-btn" onclick="closeDetails()"><i class="fas fa-times"></i></button>
-        </div>
+function showPoiDetails(id) {
+    const poi = allPois.find(p => p.id === id);
+    if (!poi) return;
+    
+    const content = `
+        <h3>${poi.name}</h3>
+        <p><b>Тип:</b> ${getTypeName(poi.type)}</p>
+        <p><b>Район:</b> ${poi.district || 'Не указан'}</p>
+        <p><b>Координаты:</b> ${poi.lat.toFixed(4)}, ${poi.lng.toFixed(4)}</p>
+        <button onclick="navigateToPoi(${poi.lat}, ${poi.lng})" style="width:100%;margin-top:10px;background:#2ecc71;color:white;border:none;padding:10px;border-radius:8px;cursor:pointer;">Показать маршрут</button>
     `;
+    
+    document.getElementById('details-content').innerHTML = content;
     document.getElementById('details-sheet').classList.add('open');
+}
+
+function navigateToPoi(lat, lng) {
+    closeDetails();
+    map.setView([lat, lng], 16);
+    
+    if (userMarker) {
+        const from = userMarker.getLatLng();
+        tempPoints = [from, L.latLng(lat, lng)];
+        drawRoutePreview();
+    }
 }
 
 function closeDetails() {
     document.getElementById('details-sheet').classList.remove('open');
 }
 
-function startRouteTo(lat, lon) {
-    closeDetails();
-    startRouteBuilder();
-    // Автоматически ставим первую точку (текущую) и вторую (выбранную)
-    // Для упрощения просто ждем клика пользователя или берем центр карты
-    const center = map.getCenter();
-    tempPoints = [center, L.latLng(lat, lon)];
-    drawPolyline(tempPoints, '#2ecc71', false);
-    recalcInfo();
-    isRouteBuilderMode = false;
+async function startTracking() {
+    try {
+        // Создаем новый трек на бэкенде
+        const response = await fetch(`${API_URL}/tracks/start`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${USER_ID}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                name: `Трек ${new Date().toLocaleDateString()}`,
+                started_at: new Date().toISOString()
+            })
+        });
+        
+        if (response.ok) {
+            currentTrack = await response.json();
+            trackPoints = [];
+            trackingStartTime = new Date();
+            
+            // Обновляем UI
+            document.getElementById('btn-start-tracking').disabled = true;
+            document.getElementById('btn-stop-tracking').disabled = false;
+            document.getElementById('btn-pause-tracking').disabled = false;
+            
+            // Запускаем отслеживание GPS
+            startGPSWatch();
+            
+            // Запускаем таймер
+            trackingInterval = setInterval(updateTrackingTimer, 1000);
+            
+            tg.showAlert('Трекинг начался! Не закрывайте приложение.');
+        } else {
+            tg.showAlert('Ошибка начала трекинга');
+        }
+    } catch (error) {
+        console.error('Ошибка старта трекинга:', error);
+        tg.showAlert('Ошибка соединения с сервером');
+    }
 }
 
-// ==================== НАВИГАЦИЯ И ВКЛАДКИ ====================
+function startGPSWatch() {
+    if ('geolocation' in navigator) {
+        watchId = navigator.geolocation.watchPosition(
+            (position) => {
+                const lat = position.coords.latitude;
+                const lng = position.coords.longitude;
+                const accuracy = position.coords.accuracy;
+                
+                trackPoints.push({
+                    latitude: lat,
+                    longitude: lng,
+                    timestamp: new Date().toISOString(),
+                    accuracy: accuracy
+                });
+                
+                // Обновляем маркер пользователя
+                if (userMarker) {
+                    userMarker.setLatLng([lat, lng]);
+                } else {
+                    userMarker = L.marker([lat, lng]).addTo(map);
+                }
+                
+                // Рисуем линию трека
+                if (polyline) {
+                    polyline.setLatLngs(trackPoints.map(p => [p.latitude, p.longitude]));
+                } else {
+                    polyline = L.polyline(trackPoints.map(p => [p.latitude, p.longitude]), {
+                        color: '#2481cc',
+                        weight: 4
+                    }).addTo(map);
+                }
+                
+                // Центрируем карту на текущей позиции
+                map.setView([lat, lng]);
+                
+                // Отправляем точку на бэкенд (опционально, можно батчами)
+                sendTrackPoint(lat, lng, accuracy);
+            },
+            (error) => {
+                console.error('Ошибка GPS:', error);
+            },
+            {
+                enableHighAccuracy: true,
+                timeout: 10000,
+                maximumAge: 0
+            }
+        );
+    }
+}
+
+async function sendTrackPoint(lat, lng, accuracy) {
+    if (!currentTrack) return;
+    
+    try {
+        await fetch(`${API_URL}/tracks/${currentTrack.id}/points`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${USER_ID}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                latitude: lat,
+                longitude: lng,
+                accuracy: accuracy,
+                timestamp: new Date().toISOString()
+            })
+        });
+    } catch (error) {
+        console.error('Ошибка отправки точки:', error);
+    }
+}
+
+function updateTrackingTimer() {
+    if (!trackingStartTime) return;
+    
+    const now = new Date();
+    const elapsed = Math.floor((now - trackingStartTime) / 1000);
+    
+    document.getElementById('tracking-time').textContent = formatTime(elapsed);
+    
+    // Расчет расстояния (упрощенно)
+    const distance = calculateDistance(trackPoints);
+    document.getElementById('tracking-distance').textContent = `${distance.toFixed(2)} км`;
+}
+
+function formatTime(seconds) {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    
+    return [
+        hours.toString().padStart(2, '0'),
+        minutes.toString().padStart(2, '0'),
+        secs.toString().padStart(2, '0')
+    ].join(':');
+}
+
+function calculateDistance(points) {
+    if (points.length < 2) return 0;
+    
+    let total = 0;
+    for (let i = 1; i < points.length; i++) {
+        total += getDistanceFromLatLonInKm(
+            points[i-1].latitude,
+            points[i-1].longitude,
+            points[i].latitude,
+            points[i].longitude
+        );
+    }
+    
+    return total;
+}
+
+function getDistanceFromLatLonInKm(lat1, lon1, lat2, lon2) {
+    const R = 6371; // Радиус Земли в км
+    const dLat = deg2rad(lat2 - lat1);
+    const dLon = deg2rad(lon2 - lon1);
+    const a =
+        Math.sin(dLat/2) * Math.sin(dLat/2) +
+        Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) *
+        Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+}
+
+function deg2rad(deg) {
+    return deg * (Math.PI/180);
+}
+
+function pauseTracking() {
+    if (watchId) {
+        navigator.geolocation.clearWatch(watchId);
+        watchId = null;
+    }
+    
+    if (trackingInterval) {
+        clearInterval(trackingInterval);
+        trackingInterval = null;
+    }
+    
+    document.getElementById('btn-pause-tracking').textContent = '▶️ Продолжить';
+    document.getElementById('btn-pause-tracking').setAttribute('onclick', 'resumeTracking()');
+}
+
+function resumeTracking() {
+    startGPSWatch();
+    trackingInterval = setInterval(updateTrackingTimer, 1000);
+    
+    document.getElementById('btn-pause-tracking').textContent = '⏸️ Пауза';
+    document.getElementById('btn-pause-tracking').setAttribute('onclick', 'pauseTracking()');
+}
+
+async function stopTracking() {
+    if (watchId) {
+        navigator.geolocation.clearWatch(watchId);
+        watchId = null;
+    }
+    
+    if (trackingInterval) {
+        clearInterval(trackingInterval);
+        trackingInterval = null;
+    }
+    
+    if (currentTrack) {
+        try {
+            // Завершаем трек на бэкенде
+            await fetch(`${API_URL}/tracks/${currentTrack.id}/stop`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${USER_ID}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    ended_at: new Date().toISOString(),
+                    total_distance_km: calculateDistance(trackPoints),
+                    total_points: trackPoints.length
+                })
+            });
+            
+            tg.showAlert(`Трек завершен! Пройдено: ${calculateDistance(trackPoints).toFixed(2)} км`);
+            
+            // Сброс
+            currentTrack = null;
+            trackPoints = [];
+            polyline = null;
+            trackingStartTime = null;
+            
+            // Обновляем UI
+            document.getElementById('btn-start-tracking').disabled = false;
+            document.getElementById('btn-stop-tracking').disabled = true;
+            document.getElementById('btn-pause-tracking').disabled = true;
+            document.getElementById('btn-pause-tracking').textContent = '⏸️ Пауза';
+            document.getElementById('btn-pause-tracking').setAttribute('onclick', 'pauseTracking()');
+            document.getElementById('tracking-time').textContent = '00:00:00';
+            document.getElementById('tracking-distance').textContent = '0.00 км';
+            
+            // Перезагружаем статистику
+            loadQuickStats();
+            loadRecentTracks();
+            
+        } catch (error) {
+            console.error('Ошибка остановки трекинга:', error);
+            tg.showAlert('Ошибка сохранения трека');
+        }
+    }
+}
+
+// ==================== КАТАЛОГ МАРШРУТОВ ====================
+async function loadRoutes() {
+    try {
+        const response = await fetch(`${API_URL}/routes`, {
+            headers: {
+                'Authorization': `Bearer ${USER_ID}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (response.ok) {
+            const routes = await response.json();
+            renderRoutes(routes);
+        }
+    } catch (error) {
+        console.error('Ошибка загрузки маршрутов:', error);
+    }
+}
+
+function renderRoutes(routes) {
+    const container = document.getElementById('routes-list');
+    
+    if (!routes || routes.length === 0) {
+        container.innerHTML = '<p class="loading">Маршруты не найдены</p>';
+        return;
+    }
+    
+    container.innerHTML = routes.map(route => `
+        <div class="route-card" data-difficulty="${route.difficulty || 'medium'}">
+            <img src="${route.image_url || 'images/route-placeholder.jpg'}" alt="${route.name}" class="route-image" onerror="this.src='images/route-placeholder.jpg'">
+            <div class="route-info">
+                <div class="route-title">${route.name}</div>
+                <div class="route-meta">
+                    <span>📍 ${(route.distance_km || 0).toFixed(1)} км</span>
+                    <span>⏱️ ${formatDuration(route.duration_seconds || 0)}</span>
+                    <span class="route-difficulty difficulty-${route.difficulty || 'medium'}">
+                        ${getDifficultyLabel(route.difficulty)}
+                    </span>
+                </div>
+                <button class="btn-route-action" onclick="viewRoute(${route.id})">
+                    Смотреть маршрут
+                </button>
+            </div>
+        </div>
+    `).join('');
+}
+
+function getDifficultyLabel(difficulty) {
+    const labels = {
+        'easy': 'Легкий',
+        'medium': 'Средний',
+        'hard': 'Сложный'
+    };
+    return labels[difficulty] || 'Средний';
+}
+
+function filterRoutes() {
+    const searchTerm = document.getElementById('route-search').value.toLowerCase();
+    const difficultyFilter = document.getElementById('route-difficulty').value;
+    
+    const cards = document.querySelectorAll('.route-card');
+    
+    cards.forEach(card => {
+        const title = card.querySelector('.route-title').textContent.toLowerCase();
+        const difficulty = card.getAttribute('data-difficulty');
+        
+        const matchesSearch = title.includes(searchTerm);
+        const matchesDifficulty = !difficultyFilter || difficulty === difficultyFilter;
+        
+        card.style.display = matchesSearch && matchesDifficulty ? 'block' : 'none';
+    });
+}
+
+function viewRoute(routeId) {
+    // TODO: Открыть детальную информацию о маршруте
+    tg.showAlert(`Маршрут #${routeId}`);
+}
+
+// Загрузка маршрутов при инициализации
+loadRoutes();
+
+// ==================== ДОСТИЖЕНИЯ ====================
+async function loadAchievements() {
+    try {
+        const response = await fetch(`${API_URL}/user/achievements`, {
+            headers: {
+                'Authorization': `Bearer ${USER_ID}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (response.ok) {
+            const achievements = await response.json();
+            renderAchievements(achievements);
+        }
+    } catch (error) {
+        console.error('Ошибка загрузки достижений:', error);
+    }
+}
+
+function renderAchievements(achievements) {
+    const container = document.getElementById('achievements-list');
+    
+    if (!achievements || achievements.length === 0) {
+        container.innerHTML = '<p class="loading">Достижения не найдены</p>';
+        return;
+    }
+    
+    container.innerHTML = achievements.map(achievement => {
+        const isLocked = !achievement.unlocked;
+        const desc = ACHIEVEMENTS_DESC[achievement.id] || achievement.description || 'Описание недоступно';
+        return `
+        <div class="achievement-item ${isLocked ? 'locked' : ''}" onclick="showAchievementDetails('${achievement.id}', '${achievement.name}', '${desc}', ${isLocked})">
+            <div class="achievement-icon">${achievement.icon || '🏆'}</div>
+            <div class="achievement-name">${achievement.name}</div>
+            <span class="achievement-desc">${isLocked ? '???' : desc}</span>
+        </div>
+    `}).join('');
+}
+
+function showAchievementDetails(id, name, desc, locked) {
+    const content = `
+        <h3>${name}</h3>
+        <p><b>Описание:</b> ${desc}</p>
+        <p><b>Статус:</b> ${locked ? '🔒 Заблокировано' : '✅ Получено'}</p>
+        <button onclick="closeDetails()" style="width:100%;margin-top:15px;background:#2ecc71;color:white;border:none;padding:12px;border-radius:10px;cursor:pointer;font-weight:bold;">Закрыть</button>
+    `;
+    document.getElementById('details-content').innerHTML = content;
+    document.getElementById('details-sheet').classList.add('open');
+}
+
+loadAchievements();
+
+// ==================== AI ЧАТ ====================
+function openAIChat() {
+    document.getElementById("ai-chat-modal").classList.add("active");
+}
+
+function closeAIChat() {
+    document.getElementById("ai-chat-modal").classList.remove("active");
+}
+
+async function sendChat() {
+    const input = document.getElementById("chat-input");
+    const message = input.value.trim();
+    if (!message) return;
+    
+    const chatBody = document.getElementById("chat-body");
+    chatBody.innerHTML += `<div class="msg user">${message}</div>`;
+    input.value = "";
+    
+    try {
+        const response = await fetch(`${API_URL}/ai/chat`, {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({message: message, user_id: USER_ID})
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            chatBody.innerHTML += `<div class="msg bot">${data.response || "Получил ваш вопрос!"}</div>`;
+        } else {
+            chatBody.innerHTML += `<div class="msg bot">Извините, сейчас я недоступен.</div>`;
+        }
+    } catch (error) {
+        chatBody.innerHTML += `<div class="msg bot">Ошибка соединения. Попробуйте позже.</div>`;
+    }
+    
+    chatBody.scrollTop = chatBody.scrollHeight;
+}
+
+function handleChatKeyPress(event) {
+    if (event.key === "Enter") sendChat();
+}
+
+function logout() {
+    tg.showConfirm('Вы уверены, что хотите выйти?', (confirmed) => {
+        if (confirmed) {
+            // TODO: Логика выхода
+            tg.close();
+        }
+    });
+}
+
+// ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
+// Здесь будут другие утилиты и функции по мере необходимости
+
+// ==================== ДОПОЛНИТЕЛЬНЫЕ ФУНКЦИИ ====================
 function switchView(viewId) {
     document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-    document.getElementById(viewId).classList.add('active');
-    
     document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-    const idx = ['map-view','routes-view','friends-view','leaderboard-view','profile-view'].indexOf(viewId);
-    if(idx >= 0) document.querySelectorAll('.nav-btn')[idx].classList.add('active');
-
-    if (viewId === 'map-view') setTimeout(() => map.invalidateSize(), 300);
-    if (viewId === 'profile-view') loadProfile();
-    if (viewId === 'routes-view') loadMyRoutes();
-    if (viewId === 'leaderboard-view') loadLeaderboard();
-    if (viewId === 'friends-view') loadFriends();
+    
+    document.getElementById(viewId).classList.add('active');
+    const btn = document.querySelector(`[onclick="switchView('${viewId}')"]`);
+    if (btn) btn.classList.add('active');
+    
+    if (viewId === 'map-view' && map) {
+        setTimeout(() => map.invalidateSize(), 100);
+    }
 }
 
-// ==================== ПРОФИЛЬ И ДАННЫЕ ====================
-async function loadProfile() {
-    try {
-        // Загрузка данных профиля из бэкенда
-        const profileData = await WalkerAPI.getProfile(USER_ID);
-        
-        const u = profileData;
-
-        document.getElementById('user-name').innerText = u.first_name || USER_NAME;
-        if (u.photo_url) {
-            document.getElementById('user-avatar').innerHTML = `<img src="${u.photo_url}" alt="ava">`;
-        } else if (USER_PHOTO) {
-            document.getElementById('user-avatar').innerHTML = `<img src="${USER_PHOTO}" alt="ava">`;
-        } else {
-            document.getElementById('user-avatar').innerText = (u.first_name || 'U')[0];
-        }
-        
-        document.getElementById('tg-link').href = `https://t.me/${u.username || ''}`;
-
-        document.getElementById('stat-dist').innerText = (u.total_km || 0).toFixed(1);
-        document.getElementById('stat-tracks').innerText = u.total_walks || 0;
-        document.getElementById('stat-rank').innerText = getRank(u.points || 0);
-
-        // Параметры
-        document.getElementById('p-age').innerText = u.age || '-';
-        document.getElementById('p-height').innerText = u.height_cm ? u.height_cm+' см' : '-';
-        document.getElementById('p-weight').innerText = u.weight_kg ? u.weight_kg+' кг' : '-';
-
-        // Цели - загрузка из бэкенда
-        const goalsData = await WalkerAPI.getGoals(USER_ID);
-        if (goalsData && goalsData.length > 0) {
-            const activeGoal = goalsData.find(g => g.status === 'active') || goalsData[0];
-            renderGoals({
-                steps: activeGoal.goal_type === 'steps' ? activeGoal.target_value : 10000,
-                walks: activeGoal.goal_type === 'walks' ? activeGoal.target_value : 3,
-                km: activeGoal.goal_type === 'distance' ? activeGoal.target_value : 10,
-                period: activeGoal.period || 'week',
-                penalty: 'carry'
-            }, {
-                steps: 0,
-                walks: activeGoal.goal_type === 'walks' ? activeGoal.current_value : 0,
-                km: activeGoal.goal_type === 'distance' ? activeGoal.current_value : 0
-            });
-        } else {
-            renderGoals({ steps: 10000, walks: 3, km: 10, period: 'week', penalty: 'carry' }, { steps: 0, walks: 0, km: 0 });
-        }
-        
-        // Достижения - загрузка из бэкенда
-        const achievementsData = await WalkerAPI.getAchievements(USER_ID);
-        renderAchievementsFromAPI(achievementsData);
-
-    } catch (e) {
-        console.error("Profile load error", e);
-        // Fallback к локальным данным
-        const u = {
-            first_name: USER_NAME,
-            photo_url: USER_PHOTO,
-            total_km: 0,
-            total_walks: 0,
-            points: 0,
-            age: null, height_cm: null, weight_kg: null,
-            goals: { steps: 10000, walks: 3, km: 10, period: 'week', penalty: 'carry' },
-            period_stats: { steps: 0, walks: 0, km: 0 }
-        };
-        document.getElementById('user-name').innerText = u.first_name;
-        if (u.photo_url) {
-            document.getElementById('user-avatar').innerHTML = `<img src="${u.photo_url}" alt="ava">`;
-        } else {
-            document.getElementById('user-avatar').innerText = u.first_name[0];
-        }
-        document.getElementById('stat-dist').innerText = u.total_km;
-        document.getElementById('stat-tracks').innerText = u.total_walks;
-        document.getElementById('stat-rank').innerText = getRank(u.points);
-        document.getElementById('p-age').innerText = '-';
-        document.getElementById('p-height').innerText = '-';
-        document.getElementById('p-weight').innerText = '-';
-        renderGoals(u.goals, u.period_stats);
-        renderAchievements(u);
+function centerOnUser() {
+    if (userMarker) {
+        const latlng = userMarker.getLatLng();
+        map.setView(latlng, 16);
     }
+}
+
+function toggleFilterMenu() {
+    const menu = document.getElementById('filter-menu');
+    menu.classList.toggle('open');
+}
+
+function setTransport(mode) {
+    currentMode = mode;
+    document.querySelectorAll('.t-btn').forEach(b => b.classList.remove('active'));
+    const btn = document.querySelector(`[data-mode="${mode}"]`);
+    if (btn) btn.classList.add('active');
+}
+
+function getDifficultyLabel(difficulty) {
+    const labels = {'easy': 'Легкий', 'medium': 'Средний', 'hard': 'Сложный'};
+    return labels[difficulty] || 'Средний';
+}
+
+function closeModal(modalId) {
+    document.getElementById(modalId).classList.remove('active');
+}
+
+function openPublishRouteModal() {
+    document.getElementById('publish-route-modal').classList.add('active');
+}
+
+function openGroupHikeModal() {
+    document.getElementById('group-hike-modal').classList.add('active');
+}
+
+function publishRoute() {
+    const name = document.getElementById('route-name').value;
+    tg.showAlert(`Маршрут "${name}" опубликован!`);
+    closeModal('publish-route-modal');
+}
+
+function createGroupHike() {
+    const name = document.getElementById('group-name').value;
+    tg.showAlert(`Поход "${name}" создан!`);
+    closeModal('group-hike-modal');
+}
+
+function inviteFriend() {
+    tg.showShareURL();
 }
 
 function editParams() {
     document.getElementById('params-display').style.display = 'none';
     document.getElementById('params-editor').style.display = 'block';
-    // Заполнить текущими значениями если есть
-    document.getElementById('edit-age').value = document.getElementById('p-age').innerText === '-' ? '' : document.getElementById('p-age').innerText;
-    document.getElementById('edit-height').value = document.getElementById('p-height').innerText.replace(' см','');
-    document.getElementById('edit-weight').value = document.getElementById('p-weight').innerText.replace(' кг','');
+}
+
+function saveParams() {
+    const age = document.getElementById('edit-age').value;
+    const height = document.getElementById('edit-height').value;
+    const weight = document.getElementById('edit-weight').value;
+    
+    document.getElementById('p-age').textContent = age || '-';
+    document.getElementById('p-height').textContent = height || '-';
+    document.getElementById('p-weight').textContent = weight || '-';
+    
+    document.getElementById('params-editor').style.display = 'none';
+    document.getElementById('params-display').style.display = 'block';
 }
 
 function cancelParams() {
-    document.getElementById('params-display').style.display = 'block';
     document.getElementById('params-editor').style.display = 'none';
-}
-
-async function saveParams() {
-    const data = {
-        user_id: USER_ID,
-        age: document.getElementById('edit-age').value,
-        height: document.getElementById('edit-height').value,
-        weight: document.getElementById('edit-weight').value
-    };
-    
-    // Отправка на бэкенд
-    // await fetch(`${API_URL}/update_profile`, { method:'POST', body: JSON.stringify(data) });
-    
-    alert("Параметры сохранены!");
-    cancelParams();
-    loadProfile(); // Обновить UI
-}
-
-async function uploadAvatar(input) {
-    if (input.files && input.files[0]) {
-        const formData = new FormData();
-        formData.append('avatar', input.files[0]);
-        formData.append('user_id', USER_ID);
-        
-        // await fetch(`${API_URL}/upload_avatar`, { method:'POST', body: formData });
-        alert("Аватарка загружена (эмуляция)");
-        loadProfile();
-    }
-}
-
-function renderGoals(goals, stats) {
-    const container = document.getElementById('goals-section');
-    if (!goals) return;
-    
-    const items = [
-        { l: 'Шаги', v: stats.steps, t: goals.steps, unit: '' },
-        { l: 'Прогулки', v: stats.walks, t: goals.walks, unit: '' },
-        { l: 'Км', v: stats.km, t: goals.km, unit: '' }
-    ];
-    
-    container.innerHTML = items.map(i => {
-        const pct = Math.min((i.v / i.t) * 100, 100);
-        return `
-            <div class="goal-item">
-                <span>${i.l}: ${i.v} / ${i.t}</span>
-                <div class="progress-bg"><div class="progress-fill" style="width:${pct}%"></div></div>
-            </div>
-        `;
-    }).join('');
+    document.getElementById('params-display').style.display = 'block';
 }
 
 function openGoalsEditor() {
-    // Заполнить инпуты текущими целями (нужно сохранить их в глобальной переменной или взять из профиля)
     document.getElementById('goals-modal').classList.add('active');
 }
 
 function saveGoals() {
-    const goals = {
-        steps: document.getElementById('g-steps').value,
-        walks: document.getElementById('g-walks').value,
-        km: document.getElementById('g-km').value,
-        period: document.getElementById('goal-period').value,
-        penalty: document.getElementById('g-penalty').value
-    };
-    // Save to API
+    tg.showAlert('Цели сохранены!');
     closeModal('goals-modal');
-    loadProfile();
 }
 
-function renderAchievements(u) {
-    const list = [
-        { id: 'first', icon: '🥇', label: 'Старт', cond: u.total_walks >= 1 },
-        { id: '10km', icon: '🚶', label: '10 км', cond: u.total_km >= 10 },
-        { id: 'night', icon: '🌙', label: 'Сова', cond: false },
-        { id: 'pro', icon: '🔥', label: 'Профи', cond: u.total_km >= 50 }
-    ];
+function togglePublicRoutes() {
+    loadRoutes();
+}
+
+async function loadLeaderboard() {
+    const container = document.getElementById('leaderboard-list');
+    try {
+        const response = await fetch(`${API_URL}/leaderboard`);
+        if (response.ok) {
+            const data = await response.json();
+            renderLeaderboard(data);
+            return;
+        }
+    } catch (e) {}
     
-    document.getElementById('achievements-list').innerHTML = list.map(a => `
-        <div class="ach-item ${a.cond ? 'unlocked' : ''}">
-            ${a.icon}<span class="ach-label">${a.label}</span>
+    // Демо данные
+    const demo = [
+        {rank: 1, name: 'Алексей', distance_km: 125.5},
+        {rank: 2, name: 'Мария', distance_km: 98.2},
+        {rank: 3, name: 'Дмитрий', distance_km: 87.6}
+    ];
+    renderLeaderboard(demo);
+}
+
+function renderLeaderboard(users) {
+    const container = document.getElementById('leaderboard-list');
+    container.innerHTML = users.map((u, i) => `
+        <div class="card" style="margin-bottom:10px;">
+            <div class="card-icon" style="background:${i===0?'#ffd700':i===1?'#c0c0c0':i===2?'#cd7f32':'var(--tg-secondary)'};color:${i<3?'#000':'var(--tg-text)'}">${i+1}</div>
+            <div class="card-info">
+                <h4>${u.name || u.username}</h4>
+                <p>${(u.distance_km || 0).toFixed(1)} км</p>
+            </div>
         </div>
     `).join('');
 }
 
-// Рендер достижений из API бэкенда
-function renderAchievementsFromAPI(achievementsData) {
-    if (!achievementsData || !achievementsData.earned) {
-        renderAchievements({ total_walks: 0, total_km: 0 });
+async function loadRoutes() {
+    const container = document.getElementById('routes-list');
+    try {
+        const response = await fetch(`${API_URL}/routes/public`);
+        if (response.ok) {
+            const routes = await response.json();
+            renderRoutes(routes);
+            return;
+        }
+    } catch (e) {}
+    
+    // Демо данные
+    const demo = [
+        {id: 1, name: 'Парковый круг', distance_km: 3.5, duration_seconds: 2520, difficulty: 'easy'},
+        {id: 2, name: 'Исторический центр', distance_km: 5.2, duration_seconds: 4200, difficulty: 'medium'}
+    ];
+    renderRoutes(demo);
+}
+
+function renderRoutes(routes) {
+    const container = document.getElementById('routes-list');
+    if (!routes || routes.length === 0) {
+        container.innerHTML = '<p class="loading">Маршруты не найдены</p>';
         return;
     }
     
-    const earned = achievementsData.earned || [];
-    const available = achievementsData.available || [];
-    
-    let html = '';
-    
-    // Отображаем полученные достижения
-    earned.forEach(ach => {
-        html += `
-            <div class="ach-item unlocked">
-                ${ach.icon || '🏆'}<span class="ach-label">${ach.name}</span>
-                <div class="ach-desc">${ach.description || ''}</div>
+    container.innerHTML = routes.map(route => `
+        <div class="card" style="margin-bottom:10px;cursor:pointer;" onclick="viewRoute(${route.id})">
+            <div class="card-icon">🗺️</div>
+            <div class="card-info">
+                <h4>${route.name}</h4>
+                <p>${(route.distance_km || 0).toFixed(1)} км • ${formatDuration(route.duration_seconds || 0)} • ${getDifficultyLabel(route.difficulty)}</p>
             </div>
-        `;
-    });
-    
-    // Отображаем доступные достижения с прогрессом
-    available.forEach(ach => {
-        const progress = ach.progress || 0;
-        html += `
-            <div class="ach-item locked">
-                ${ach.icon || '🔒'}<span class="ach-label">${ach.name}</span>
-                <div class="ach-desc">${ach.description || ''}</div>
-                <div class="ach-progress" style="margin-top:5px;">
-                    <div style="background:var(--secondary); height:4px; border-radius:2px; overflow:hidden;">
-                        <div style="background:var(--accent); width:${progress}%; height:100%;"></div>
-                    </div>
-                    <small style="color:var(--hint);">${progress}%</small>
-                </div>
-            </div>
-        `;
-    });
-    
-    document.getElementById('achievements-list').innerHTML = html || '<div class="loading-state">Нет достижений</div>';
+        </div>
+    `).join('');
 }
 
-function getRank(p) {
-    if (p >= 500) return '👑 Легенда';
-    if (p >= 200) return '🦁 Мастер';
-    if (p >= 50) return '🐯 Любитель';
-    return '🐣 Новичок';
-}
-
-// ==================== ДРУЗЬЯ И РЕЙТИНГ (БЕЗ БОТОВ) ====================
-async function loadFriends() {
-    const container = document.getElementById('friends-content');
-    try {
-        const friendsData = await WalkerAPI.getFriends(USER_ID);
-        
-        if (friendsData && friendsData.length > 0) {
-            container.innerHTML = friendsData.map(f => `
-                <div class="friend-item">
-                    <div class="friend-avatar">${(f.first_name || f.username || 'U')[0]}</div>
-                    <div class="friend-info">
-                        <div class="friend-name">${f.first_name || f.username}</div>
-                        <div class="friend-stat">${f.total_km?.toFixed(1) || 0} км пройдено</div>
-                    </div>
-                    <div class="friend-status ${f.status === 'accepted' ? 'online' : 'pending'}"></div>
-                </div>
-            `).join('');
-        } else {
-            container.innerHTML = `<div class="loading-state">У вас пока нет друзей. Пригласите!</div>`;
-        }
-    } catch (e) {
-        console.error("Error loading friends:", e);
-        container.innerHTML = `<div class="loading-state">У вас пока нет друзей. Пригласите!</div>`;
-    }
-}
-
-function switchFriendsTab(tab) {
-    document.querySelectorAll('#friends-view .tab').forEach(t => t.classList.remove('active'));
-    event.target.classList.add('active');
-    loadFriends(); // В реальной версии грузить заявки отдельно
-}
-
-function inviteFriend() {
-    tg.openInlineButton(`https://t.me/share/url?url=Привет! Иди гулять со мной в WalkerBot`);
-}
-
-async function loadLeaderboard() {
-    const list = document.getElementById('leaderboard-list');
-    try {
-        const leaderboardData = await WalkerAPI.getLeaderboard(10);
-        
-        if (leaderboardData && leaderboardData.length > 0) {
-            let html = '';
-            leaderboardData.forEach((entry, index) => {
-                const rankIcon = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `#${index + 1}`;
-                html += `
-                    <div class="leaderboard-item ${entry.user_id === USER_ID ? 'current-user' : ''}">
-                        <span class="rank">${rankIcon}</span>
-                        <span class="name">${entry.username || `User ${entry.user_id}`}</span>
-                        <span class="points">${entry.points} очков</span>
-                        <span class="km">${entry.total_km?.toFixed(1) || 0} км</span>
-                    </div>
-                `;
-            });
-            
-            // Добавляем позицию текущего пользователя если есть
-            if (leaderboardData.user_rank) {
-                html += `
-                    <div class="leaderboard-divider">Ваша позиция</div>
-                    <div class="leaderboard-item current-user">
-                        <span class="rank">#${leaderboardData.user_rank.rank}</span>
-                        <span class="name">${leaderboardData.user_rank.username || 'Вы'}</span>
-                        <span class="points">${leaderboardData.user_rank.points} очков</span>
-                        <span class="km">${leaderboardData.user_rank.total_km?.toFixed(1) || 0} км</span>
-                    </div>
-                `;
-            }
-            
-            list.innerHTML = html;
-        } else {
-            list.innerHTML = `
-                <div class="loading-state">
-                    <p>Рейтинг формируется по мере активности.</p>
-                    <p>Стань первым! 🚀</p>
-                </div>
-            `;
-        }
-    } catch (e) {
-        console.error("Error loading leaderboard:", e);
-        list.innerHTML = `
-            <div class="loading-state">
-                <p>Рейтинг формируется по мере активности.</p>
-                <p>Стань первым! 🚀</p>
-            </div>
-        `;
-    }
-}
-
-async function loadMyRoutes() {
-    const list = document.getElementById('routes-list');
-    try {
-        const routesData = await WalkerAPI.getUserTracks(USER_ID);
-        
-        if (routesData && routesData.length > 0) {
-            let html = '';
-            routesData.forEach(route => {
-                html += `
-                    <div class="route-card" onclick="viewRoute(${route.id})">
-                        <div class="route-header">
-                            <h4>${route.name || 'Без названия'}</h4>
-                            <span class="route-date">${new Date(route.created_at).toLocaleDateString()}</span>
-                        </div>
-                        <div class="route-stats">
-                            <span>📍 ${route.distance_km?.toFixed(2) || 0} км</span>
-                            <span>⏱️ ${route.duration_min || 0} мин</span>
-                            <span>👣 ${route.steps || 0} шагов</span>
-                            <span>🔥 ${route.calories || 0} ккал</span>
-                        </div>
-                        <div class="route-type">
-                            <span class="type-badge">${route.transport_type === 'walk' ? '🚶 Пешком' : '🚴 Велосипед'}</span>
-                            <span class="speed">Ср. скорость: ${(route.avg_speed || 0).toFixed(1)} км/ч</span>
-                        </div>
-                    </div>
-                `;
-            });
-            list.innerHTML = html;
-        } else {
-            list.innerHTML = `<div class="loading-state">Нет сохраненных маршрутов. Запишите свою первую прогулку!</div>`;
-        }
-    } catch (e) {
-        console.error("Error loading routes:", e);
-        list.innerHTML = `<div class="loading-state">Нет сохраненных маршрутов. Запишите свою первую прогулку!</div>`;
-    }
-}
-
-function viewRoute(routeId) {
-    // Переключаемся на карту и показываем маршрут
-    switchView('map-view');
-    // В полной версии здесь будет загрузка и отображение маршрута на карте
-    tg.showAlert(`Маршрут #${routeId}. Функция просмотра деталей в разработке.`);
-}
-
-// ==================== ИИ ЧАТ ====================
-function openAIChat() {
-    document.getElementById('ai-chat-modal').classList.add('active');
-}
-
-function closeModal(id) {
-    document.getElementById(id).classList.remove('active');
-}
-
-async function sendChat() {
-    const input = document.getElementById('chat-input');
-    const txt = input.value.trim();
-    if (!txt) return;
-    
-    const body = document.getElementById('chat-body');
-    body.innerHTML += `<div class="msg user">${txt}</div>`;
-    input.value = '';
-    body.scrollTop = body.scrollHeight;
-    
-    // Показываем индикатор набора текста
-    const loadingId = 'loading-' + Date.now();
-    body.innerHTML += `<div class="msg bot" id="${loadingId}">⏳ Думаю...</div>`;
-    body.scrollTop = body.scrollHeight;
-    
-    try {
-        // Получаем текущую локацию для контекста
-        let currentLocation = null;
-        if (userMarker) {
-            const latlng = userMarker.getLatLng();
-            currentLocation = { lat: latlng.lat, lon: latlng.lng };
-        }
-        
-        // Отправляем запрос к ИИ через бэкенд
-        const response = await WalkerAPI.sendAIChat(USER_ID, txt, {
-            current_location: currentLocation,
-            user_level: 'amateur',
-            preferences: ['nature', 'quiet']
-        });
-        
-        // Удаляем индикатор загрузки
-        document.getElementById(loadingId).remove();
-        
-        // Отображаем ответ ИИ
-        body.innerHTML += `<div class="msg bot">${response.response || 'Извините, я не понял вопрос.'}</div>`;
-        
-        // Если есть предложенный маршрут - показываем
-        if (response.suggested_route && response.suggested_route.points) {
-            body.innerHTML += `
-                <div class="msg bot route-suggestion">
-                    <strong>🗺️ Предложенный маршрут:</strong><br>
-                    ${response.suggested_route.name || 'Маршрут'}<br>
-                    📍 ${(response.suggested_route.distance_km || 0).toFixed(1)} км | 
-                    Сложность: ${response.suggested_route.difficulty || 'средняя'}
-                </div>
-            `;
-            
-            // Советы от ИИ
-            if (response.tips && response.tips.length > 0) {
-                body.innerHTML += `
-                    <div class="msg bot tips">
-                        <strong>💡 Советы:</strong><br>
-                        ${response.tips.map(tip => `• ${tip}`).join('<br>')}
-                    </div>
-                `;
-            }
-        }
-        
-        body.scrollTop = body.scrollHeight;
-        
-    } catch (e) {
-        console.error("AI Chat error:", e);
-        document.getElementById(loadingId).remove();
-        body.innerHTML += `<div class="msg bot">❌ Ошибка соединения с ИИ. Попробуйте позже.</div>`;
-        body.scrollTop = body.scrollHeight;
-    }
-}
-
-// Геолокация
-function centerOnUser() {
-    if (!navigator.geolocation) return;
-    navigator.geolocation.getCurrentPosition(pos => {
-        const { latitude, longitude } = pos.coords;
-        map.setView([latitude, longitude], 15);
-        if (userMarker) userMarker.setLatLng([latitude, longitude]);
-        else {
-            userMarker = L.marker([latitude, longitude]).addTo(map);
-            userMarker.bindPopup("Вы здесь").openPopup();
-        }
-    });
-}
-// ==================== СВЯЗЬ С РАЗРАБОТЧИКОМ ====================
-function openDevFeedback() {
-    document.getElementById('dev-feedback-modal').classList.add('active');
-}
-
-async function sendDevFeedback() {
-    const textarea = document.getElementById('dev-feedback-text');
-    const message = textarea.value.trim();
-    
-    if (!message) {
-        tg.showAlert('Пожалуйста, введите сообщение');
-        return;
-    }
-
-    // Формируем данные для отправки
-    const developerId = 7434911134;
-    const developerUsername = '@huevgeniyy';
-    
-    const feedbackData = {
-        user_id: USER_ID,
-        user_name: USER_NAME,
-        message: message,
-        timestamp: new Date().toISOString()
-    };
-
-    try {
-        // Вариант: Открываем диалог с разработчиком
-        const encodedMessage = encodeURIComponent(`📬 Сообщение от пользователя WalkerBot\n\n👤 Пользователь: ${USER_NAME}\n🆔 ID: ${USER_ID}\n\n💬 Сообщение:\n${message}`);
-        
-        // Открываем диалог с разработчиком
-        tg.openTelegramLink(`https://t.me/huevgeniyy`);
-        
-        // Закрываем модальное окно и показываем подтверждение
-        closeModal('dev-feedback-modal');
-        textarea.value = '';
-        
-        // Показываем уведомление об успешной отправке
-        tg.showAlert('✅ Спасибо! Ваше сообщение отправлено разработчику.\n\nЕсли диалог не открылся автоматически, напишите вручную на @huevgeniyy');
-        
-    } catch (e) {
-        console.error("Ошибка отправки фидбека:", e);
-        tg.showAlert('❌ Ошибка отправки. Попробуйте написать разработчику напрямую: @huevgeniyy');
-    }
+function viewRoute(id) {
+    tg.showAlert(`Маршрут #${id}`);
 }

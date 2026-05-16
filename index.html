@@ -54,6 +54,8 @@
         <div class="right-tools">
             <button class="tool-btn" id="measure-btn" onclick="toggleMeasureMode()" title="Измерить тропу"><i class="fas fa-ruler-combined"></i></button>
             <button class="tool-btn" id="route-btn-main" onclick="startRouteBuilder()" title="Построить маршрут"><i class="fas fa-route"></i></button>
+            <button class="tool-btn" id="record-track-btn" onclick="toggleRecordTrack()" title="Записать трек"><i class="fas fa-record-vinyl"></i></button>
+            <button class="tool-btn" id="group-hike-btn" onclick="openGroupHikeModal()" title="Групповой поход"><i class="fas fa-users"></i></button>
         </div>
 
         <!-- Инфо панель (расстояние/время) -->
@@ -78,11 +80,12 @@
     <div id="routes-view" class="view">
         <div class="header">
             <h2>📍 Мои маршруты</h2>
-            <button class="icon-btn-small" onclick="loadPublicRoutesToggle()"><i class="fas fa-globe"></i></button>
+            <button class="icon-btn-small" onclick="togglePublicRoutes()"><i class="fas fa-globe"></i></button>
         </div>
         <div class="scroll-container" id="routes-list">
             <div class="loading-state">Загрузка...</div>
         </div>
+        <button class="fab-btn" onclick="openPublishRouteModal()"><i class="fas fa-plus"></i></button>
     </div>
 
     <!-- ==================== ВКЛАДКА: ДРУЗЬЯ ==================== -->
@@ -93,6 +96,7 @@
             <div class="tabs">
                 <button class="tab active" onclick="switchFriendsTab('list')">Список</button>
                 <button class="tab" onclick="switchFriendsTab('requests')">Заявки</button>
+                <button class="tab" onclick="switchFriendsTab('search')">Поиск</button>
             </div>
             <div id="friends-content"></div>
         </div>
@@ -151,9 +155,6 @@
             <div class="section-title">🤖 ИИ Помощник</div>
             <button class="primary-btn ai-btn" onclick="openAIChat()"><i class="fas fa-robot"></i> Задать вопрос о маршруте</button>
 
-            <div class="section-title">📬 Связь с разработчиком</div>
-            <button class="primary-btn dev-btn" onclick="openDevFeedback()"><i class="fas fa-envelope"></i> Написать разработчику</button>
-
             <div class="section-title">🏆 Достижения</div>
             <div class="achievements-grid" id="achievements-list"></div>
         </div>
@@ -195,18 +196,43 @@
         </div>
     </div>
 
-    <!-- Обратная связь разработчику -->
-    <div id="dev-feedback-modal" class="modal">
+    <!-- Публикация маршрута -->
+    <div id="publish-route-modal" class="modal">
         <div class="modal-content">
-            <div class="chat-header">
-                <h3>📬 Разработчику</h3>
-                <button onclick="closeModal('dev-feedback-modal')"><i class="fas fa-times"></i></button>
-            </div>
-            <p style="font-size:13px; color:var(--hint); margin:15px 0;">Напишите ваши предложения, баги, интересные локации которых нет</p>
-            <textarea id="dev-feedback-text" placeholder="Ваше сообщение..." rows="5" style="width:100%; padding:10px; border-radius:8px; border:1px solid var(--secondary); background:var(--bg); color:var(--text); font-family:inherit; resize:none;"></textarea>
+            <h3>📢 Опубликовать маршрут</h3>
+            <input type="text" id="route-name" placeholder="Название маршрута">
+            <textarea id="route-description" placeholder="Описание"></textarea>
+            <label>Сложность</label>
+            <select id="route-difficulty">
+                <option value="easy">Легкий</option>
+                <option value="medium">Средний</option>
+                <option value="hard">Сложный</option>
+            </select>
+            <label>
+                <input type="checkbox" id="route-public"> Публичный (виден всем)
+            </label>
+            <label>
+                <input type="checkbox" id="route-seek-partners"> Ищу попутчиков
+            </label>
             <div class="btn-row" style="margin-top:15px">
-                <button class="primary-btn small" onclick="sendDevFeedback()">Отправить</button>
-                <button class="secondary-btn small" onclick="closeModal('dev-feedback-modal')">Отмена</button>
+                <button class="primary-btn small" onclick="publishRoute()">Опубликовать</button>
+                <button class="secondary-btn small" onclick="closeModal('publish-route-modal')">Отмена</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Групповой поход -->
+    <div id="group-hike-modal" class="modal">
+        <div class="modal-content">
+            <h3>👥 Создать групповой поход</h3>
+            <input type="text" id="group-name" placeholder="Название похода">
+            <input type="datetime-local" id="group-date">
+            <textarea id="group-description" placeholder="Описание и детали"></textarea>
+            <label>Максимум участников</label>
+            <input type="number" id="group-max-members" value="10">
+            <div class="btn-row" style="margin-top:15px">
+                <button class="primary-btn small" onclick="createGroupHike()">Создать</button>
+                <button class="secondary-btn small" onclick="closeModal('group-hike-modal')">Отмена</button>
             </div>
         </div>
     </div>
@@ -220,8 +246,12 @@
         <button class="nav-btn" onclick="switchView('profile-view')"><i class="fas fa-user"></i><span>Профиль</span></button>
     </nav>
 
+    <!-- Плавающая кнопка ИИ чата (видна везде) -->
+    <button class="floating-ai-btn" onclick="openAIChat()" title="ИИ Помощник">
+        <i class="fas fa-robot"></i>
+    </button>
+
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="api.js"></script>
     <script src="app.js"></script>
 </body>
 </html>
